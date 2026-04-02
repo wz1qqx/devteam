@@ -54,6 +54,14 @@ repos:
 defaults:
   active_feature: <string>          # Currently active feature
   active_cluster: <string>          # Which cluster to use by default
+  model_profile: balanced           # Agent model tier: quality | balanced | budget
+  tuning:                           # Optional tunable parameters (all have defaults)
+    regression_threshold: 20        # Benchmark regression alert threshold (%)
+    max_task_retries: 2             # code-exec max retries per failed task
+    deploy_timeout: 300             # Pod readiness timeout (seconds)
+    deploy_poll_interval: 15        # Pod status poll interval (seconds)
+    build_history_limit: 5          # Number of build history entries in context
+    commit_format: "feat({feature}): {title}"  # Commit message template
 
 # ═══════════════════════════════════════
 # FEATURES (多个，按需创建，独立生命周期)

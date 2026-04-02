@@ -139,9 +139,9 @@ Wait for pods to be ready with timeout monitoring.
 
 ```bash
 echo "Waiting for pods to become ready..."
-TIMEOUT=300  # 5 minutes
+TIMEOUT=$(echo "$INIT" | jq -r '.tuning.deploy_timeout')
 ELAPSED=0
-INTERVAL=15
+INTERVAL=$(echo "$INIT" | jq -r '.tuning.deploy_poll_interval')
 
 while [ $ELAPSED -lt $TIMEOUT ]; do
   PODS=$($SSH kubectl get pods -n "$NAMESPACE" -l "app=$DGD_NAME" -o json)
@@ -156,9 +156,9 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     break
   fi
 
-  # CRITICAL: If stuck > 5 minutes with 0/1, check logs immediately
-  if [ $ELAPSED -ge 300 ]; then
-    echo "[ALERT] Pods stuck. Checking logs..."
+  # CRITICAL: If stuck past timeout, check logs immediately
+  if [ $ELAPSED -ge $TIMEOUT ]; then
+    echo "[ALERT] Pods stuck after ${TIMEOUT}s. Checking logs..."
     PROBLEM_POD=$($SSH kubectl get pods -n "$NAMESPACE" -l "app=$DGD_NAME" --no-headers | head -1 | awk '{print $1}')
     $SSH kubectl logs "$PROBLEM_POD" -n "$NAMESPACE" --tail=50
     echo "Consider: /devflow debug deploy-stuck"

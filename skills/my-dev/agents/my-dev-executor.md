@@ -29,7 +29,7 @@ Load project context at the start of every execution:
 - NEVER read from or copy code from base_worktree into dev_worktree (use as reference only)
 - Follow the task instructions PRECISELY. Do not add unrequested features or refactors.
 - Each task = one atomic git commit in the dev_worktree
-- Commit message format: `feat(<feature>): <task_title>`
+- Commit message format: use the `commit_format` from task context (default: `feat(<feature>): <task_title>`). Replace `{feature}` with the feature name and `{title}` with the task title.
 - If a task cannot be completed as specified, STOP and report the deviation
 - Immutability: prefer creating new objects over mutating existing ones
 - Error handling: add proper error handling for all new code paths

@@ -30,22 +30,32 @@ try {
       break;
     }
     case 'resolve-model': {
-      const MODEL_MAP = {
-        'my-dev-researcher': 'opus',
-        'my-dev-planner': 'opus',
-        'my-dev-plan-checker': 'opus',
-        'my-dev-executor': 'opus',
-        'my-dev-reviewer': 'opus',
-        'my-dev-verifier': 'opus',
-        'my-dev-debugger': 'opus',
+      const PROFILES = {
+        quality:  { researcher:'sonnet', planner:'opus', 'plan-checker':'sonnet', executor:'opus', reviewer:'opus', verifier:'sonnet', debugger:'sonnet' },
+        balanced: { researcher:'haiku', planner:'opus', 'plan-checker':'sonnet', executor:'sonnet', reviewer:'sonnet', verifier:'sonnet', debugger:'sonnet' },
+        budget:   { researcher:'haiku', planner:'sonnet', 'plan-checker':'haiku', executor:'sonnet', reviewer:'sonnet', verifier:'haiku', debugger:'sonnet' },
       };
       const agent = subcommand;
       if (!agent) error('Usage: resolve-model <agent-name>');
-      const model = MODEL_MAP[agent];
-      if (!model) {
-        process.stderr.write(`[my-dev-tools] WARN: Unknown agent '${agent}', defaulting to sonnet. Known: ${Object.keys(MODEL_MAP).join(', ')}\n`);
+
+      const { findWorkspaceRoot } = require('./lib/core.cjs');
+      const { loadConfig } = require('./lib/config.cjs');
+      const root = findWorkspaceRoot();
+      let profile = 'balanced';
+      if (root) {
+        try {
+          const config = loadConfig(root);
+          profile = (config.defaults && config.defaults.model_profile) || 'balanced';
+        } catch (_) { /* fallback to balanced */ }
       }
-      output({ agent, model: model || 'sonnet' });
+
+      const shortName = agent.replace('my-dev-', '');
+      const profileMap = PROFILES[profile] || PROFILES.balanced;
+      const model = profileMap[shortName];
+      if (!model) {
+        process.stderr.write(`[devflow] WARN: Unknown agent '${agent}', defaulting to sonnet.\n`);
+      }
+      output({ agent, model: model || 'sonnet', profile });
       break;
     }
     case 'verify': {

@@ -1,6 +1,12 @@
 # Model Profiles
 
-Agent model assignments for /devflow workflows. Follows GSD's tiered approach.
+Agent model assignments for /devflow workflows. Profile-driven routing implemented in `resolve-model` command.
+
+Set profile in `.dev.yaml`:
+```yaml
+defaults:
+  model_profile: balanced   # quality | balanced | budget
+```
 
 ## Profiles
 

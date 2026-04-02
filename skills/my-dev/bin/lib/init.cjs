@@ -45,10 +45,21 @@ function initWorkflow(workflowName, args) {
   const workspace = expandHome(config.workspace) || root;
   const vault = expandHome(config.vault) || null;
 
+  // Tuning: merge defaults with user overrides from .dev.yaml
+  const defaultTuning = {
+    regression_threshold: 20,
+    max_task_retries: 2,
+    deploy_timeout: 300,
+    deploy_poll_interval: 15,
+    build_history_limit: 5,
+    commit_format: 'feat({feature}): {title}',
+  };
+  const tuning = { ...defaultTuning, ...((config.defaults && config.defaults.tuning) || {}) };
+
   const repos = buildReposContext(featureWithRepos, workspace);
   const hooks = featureWithRepos.hooks || {};
   const invariants = featureWithRepos.invariants || {};
-  const buildHistory = (featureWithRepos.build_history || []).slice(-5);
+  const buildHistory = (featureWithRepos.build_history || []).slice(-tuning.build_history_limit);
   const knowledgeNotes = collectKnowledgeNotes(vault, config);
 
   const stateMd = loadStateMd(root, featureWithRepos.name);
@@ -96,6 +107,7 @@ function initWorkflow(workflowName, args) {
     vault,
     invariants,
     hooks,
+    tuning,
     config_path: config._path,
   };
 

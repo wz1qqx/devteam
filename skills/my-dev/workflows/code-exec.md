@@ -107,10 +107,15 @@ Progress: $DONE/$TOTAL tasks ($PERCENT%) | Waves: $WAVES_DONE/$WAVES_TOTAL | Fai
 <step name="ERROR_RECOVERY">
 Handle task failures within a wave.
 
+Read max retries from tuning:
+```bash
+MAX_RETRIES=$(echo "$INIT" | jq -r '.tuning.max_task_retries')
+```
+
 When a task fails:
 1. Mark as `failed` in plan, mark dependent tasks as `blocked`
 2. Present options:
-   - a) Retry task (re-spawn with error context, max 2 retries)
+   - a) Retry task (re-spawn with error context, max $MAX_RETRIES retries)
    - b) Debug: `/devflow debug $FEATURE-task$N`
    - c) Skip and continue (dependent tasks blocked)
    - d) Abort (progress saved, resume with `--exec` later)

@@ -1,7 +1,7 @@
 # Workflow: verify
 
 <purpose>Post-deploy verification through smoke tests, benchmarks, accuracy checks, or full verification suites. Detects regressions and triggers debug mode on anomalies.</purpose>
-<core_principle>Verify before claiming success. Benchmark comparisons must use temperature=0.0 for deterministic results. Any regression > 20% is an anomaly requiring investigation.</core_principle>
+<core_principle>Verify before claiming success. Benchmark comparisons must use temperature=0.0 for deterministic results. Regression threshold is configurable via `tuning.regression_threshold` (default 20%).</core_principle>
 
 <process>
 <step name="INIT" priority="first">
@@ -100,8 +100,11 @@ On completion:
    CURR_RESULT="bench-results/mtb-${CURRENT_TAG}-run${N}.txt"
    ```
 
-3. Regression check:
-   - If any key metric regressed > 20%:
+3. Regression check (threshold from `tuning.regression_threshold`, default 20%):
+   ```bash
+   REGRESSION_THRESHOLD=$(echo "$INIT" | jq -r '.tuning.regression_threshold')
+   ```
+   - If any key metric regressed > $REGRESSION_THRESHOLD%:
      ```
      [ANOMALY] Performance regression detected:
        TTFT p99: 2.3s -> 3.1s (+35%)
@@ -208,7 +211,7 @@ Next: /devflow observe --analyze (for deeper analysis)
 <step name="REFLECTION">
 @references/shared-patterns.md#experience-sink
 
-Detection criteria: benchmark regression >20%, accuracy deviation > threshold, smoke test failure
+Detection criteria: benchmark regression > $REGRESSION_THRESHOLD%, accuracy deviation > threshold, smoke test failure
 Target file: `performance-lessons.md` (bench/smoke) or `accuracy-lessons.md` (accuracy)
 Context fields: `tag=$CURRENT_TAG, verdict=$VERDICT, flags=$FLAGS`
 </step>
