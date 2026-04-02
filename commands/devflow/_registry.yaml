@@ -1,0 +1,143 @@
+# devflow Command Registry
+# Source of truth for all command definitions.
+# Run `node bin/generate-commands.cjs` to regenerate .md files.
+#
+# Special commands (init.md, code.md) are hand-maintained and skipped by the generator.
+
+_skip:
+  - init
+  - code
+
+commands:
+  build:
+    description: Build container image with incremental tag chain
+    argument-hint: "[tag] [--push] [variant]"
+    objective: Build a container image using the feature's build configuration, maintaining the incremental tag chain.
+    workflow: build.md
+    allowed-tools: [Read, Write, Bash, Glob, Grep]
+
+  clean:
+    description: Cleanup resources - worktrees, images, K8s resources
+    argument-hint: "[--dry-run]"
+    objective: Scan for and optionally remove orphan worktrees, stale container images, and stale K8s pods.
+    workflow: clean.md
+    allowed-tools: [Read, Bash, Glob, Grep, AskUserQuestion]
+
+  cluster:
+    description: Manage Kubernetes clusters - add, use, list
+    argument-hint: "<add|use|list> [name]"
+    objective: Manage cluster profiles in .dev.yaml. Add new clusters, switch active cluster, or list available ones.
+    workflow: cluster.md
+    allowed-tools: [Read, Write, Bash, Glob]
+
+  debug:
+    description: Investigation mode - structured debugging with context gathering
+    argument-hint: "[topic]"
+    objective: Enter structured investigation mode to diagnose issues with hypothesis tracking and experience persistence.
+    workflow: debug.md
+    allowed-tools: [Read, Write, Edit, Bash, Glob, Grep, WebSearch, Agent]
+
+  deploy:
+    description: Deploy to Kubernetes cluster
+    argument-hint: "[--cluster <name>]"
+    objective: Deploy the current image tag to a K8s cluster with namespace safety and pod readiness verification.
+    workflow: deploy.md
+    allowed-tools: [Read, Write, Bash, Glob, Grep, AskUserQuestion]
+
+  diff:
+    description: Show worktree changes across repositories
+    argument-hint: "[repo]"
+    objective: Display a summary of uncommitted and staged changes across all worktrees (or a specific repo) managed by the project.
+    workflow: info.md
+    init-as: diff
+    context-prefix: "diff"
+
+  discuss:
+    description: Lock implementation decisions before planning — surface gray areas and capture user choices
+    argument-hint: "<feature>"
+    objective: Surface gray areas in a feature spec, ask the user to decide, and lock those decisions for the planner.
+    workflow: discuss.md
+    allowed-tools: [Read, Write, Bash, Glob, AskUserQuestion]
+
+  knowledge:
+    description: Knowledge base operations - list, coverage, update, search
+    argument-hint: "<list|coverage|update|search>"
+    objective: Manage the Obsidian knowledge base. Requires vault configured in .dev.yaml.
+    workflow: knowledge-maintain.md
+    init-as: knowledge
+    allowed-tools: [Read, Bash, Glob, Grep]
+
+  learn:
+    description: Deep-dive learning - analyze feature and generate knowledge doc
+    argument-hint: "<feature>"
+    objective: Research a feature's codebase and generate dual-layer Obsidian knowledge documents.
+    workflow: learn.md
+    allowed-tools: [Read, Write, Bash, Glob, Grep, WebSearch, Agent]
+
+  log:
+    description: Quick checkpoint - save progress snapshot to devlog
+    argument-hint: "[message]"
+    objective: Record a quick checkpoint in the devlog with current state, changes made, and an optional message.
+    workflow: log.md
+    allowed-tools: [Read, Write, Bash]
+
+  next:
+    description: Auto-detect project state and suggest the next workflow step
+    objective: Read project state and suggest the most logical next action based on current phase and artifacts.
+    workflow: next.md
+    allowed-tools: [Read, Bash, Glob, Grep]
+
+  observe:
+    description: Observability — deploy monitoring, query metrics, analyze performance
+    argument-hint: "[--setup|--monitor|--analyze|--query <promql>|--stop]"
+    objective: Manage observability stack including Prometheus monitoring, Grafana dashboards, and metrics analysis.
+    workflow: observe.md
+    allowed-tools: [Read, Write, Bash, Glob, Grep]
+
+  pause:
+    description: Save session state for later resume - writes HANDOFF.json and updates STATE.md
+    objective: Capture the current session state into HANDOFF.json and STATE.md for zero-loss session handoff.
+    workflow: pause.md
+    allowed-tools: [Read, Write, Bash, Glob, Grep]
+
+  quick:
+    description: Execute ad-hoc task with atomic commits — skip full spec/plan ceremony
+    argument-hint: '"<description>" [--discuss] [--research] [--full]'
+    objective: Execute a small task (max 3 tasks) with atomic commits, bypassing the full spec/plan pipeline.
+    workflow: quick.md
+    allowed-tools: [Read, Write, Edit, Bash, Glob, Grep, Agent, AskUserQuestion]
+
+  resume:
+    description: Restore session state and show current status
+    objective: Restore worktree state, active tasks, and pending items from .dev.yaml and state files.
+    workflow: resume.md
+    allowed-tools: [Read, Bash, Glob, Grep]
+
+  rollback:
+    description: Rollback deployment to a previous image tag
+    argument-hint: "[tag]"
+    objective: Rollback a K8s deployment to a previous image tag from build history.
+    workflow: rollback.md
+    allowed-tools: [Read, Write, Bash, Glob, AskUserQuestion]
+
+  status:
+    description: Project overview - config, worktrees, deployments, pipeline stage
+    objective: Display a comprehensive project overview including config, worktree states, active deployments, and pipeline stage.
+    workflow: info.md
+    init-as: status
+    allowed-tools: [Read, Bash, Glob, Grep]
+
+  switch:
+    description: Switch active feature context
+    argument-hint: "<feature-name>"
+    objective: Switch the active feature by updating defaults.active_feature in .dev.yaml and loading the target feature's context.
+    allowed-tools: [Read, Write, Bash, Glob]
+    references:
+      - "@~/.claude/my-dev/references/schema.md"
+
+  verify:
+    description: Post-deploy verification - smoke, bench, accuracy, or full
+    argument-hint: "[--smoke|--bench|--accuracy|--full]"
+    objective: Run post-deployment verification suites including smoke tests, benchmarks, accuracy checks, or full verification.
+    workflow: verify.md
+    allowed-tools: [Read, Write, Bash, Glob, Grep, Agent]

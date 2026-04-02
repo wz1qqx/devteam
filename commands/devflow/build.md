@@ -10,7 +10,7 @@ allowed-tools:
   - Grep
 ---
 <objective>
-Build a container image using the incremental tag chain from .dev.yaml. BASE_IMAGE is always current_tag (never the official base). Supports variant builds (e.g., pegaflow).
+Build a container image using the feature's build configuration, maintaining the incremental tag chain.
 </objective>
 
 <execution_context>

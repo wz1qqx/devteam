@@ -6,10 +6,11 @@ allowed-tools:
   - Read
   - Write
   - Bash
+  - Glob
   - AskUserQuestion
 ---
 <objective>
-Roll back the current deployment to a previous image tag. Confirms before applying and updates .dev.yaml state.
+Rollback a K8s deployment to a previous image tag from build history.
 </objective>
 
 <execution_context>

@@ -6,10 +6,10 @@ allowed-tools:
   - Read
   - Write
   - Bash
-  - AskUserQuestion
+  - Glob
 ---
 <objective>
-Manage Kubernetes cluster configurations: add new clusters, switch active cluster, or list available clusters.
+Manage cluster profiles in .dev.yaml. Add new clusters, switch active cluster, or list available ones.
 </objective>
 
 <execution_context>

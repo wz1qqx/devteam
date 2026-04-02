@@ -12,7 +12,7 @@ allowed-tools:
   - Agent
 ---
 <objective>
-Deep-dive into a feature's implementation: trace code paths, understand architecture, and generate an Obsidian knowledge document. Delegates to /obsidian-devlog learn.
+Research a feature's codebase and generate dual-layer Obsidian knowledge documents.
 </objective>
 
 <execution_context>

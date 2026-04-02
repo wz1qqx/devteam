@@ -1,7 +1,7 @@
 ---
 name: devflow:quick
 description: Execute ad-hoc task with atomic commits — skip full spec/plan ceremony
-argument-hint: "\"<description>\" [--discuss] [--research] [--full]"
+argument-hint: ""<description>" [--discuss] [--research] [--full]"
 allowed-tools:
   - Read
   - Write
@@ -13,7 +13,7 @@ allowed-tools:
   - AskUserQuestion
 ---
 <objective>
-Execute a small, ad-hoc task with GSD-style guarantees (atomic commits, state tracking) but without the full spec→plan→exec→review ceremony. Optionally add discussion, research, or verification.
+Execute a small task (max 3 tasks) with atomic commits, bypassing the full spec/plan pipeline.
 </objective>
 
 <execution_context>
@@ -22,11 +22,6 @@ Execute a small, ad-hoc task with GSD-style guarantees (atomic commits, state tr
 
 <context>
 $ARGUMENTS
-
-Available flags (active only when literally present):
-- `--discuss` — surface gray areas before planning
-- `--research` — check Obsidian knowledge cache + research if needed
-- `--full` — enable plan-checker verification + post-exec review
 </context>
 
 <process>

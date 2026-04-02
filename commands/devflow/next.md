@@ -8,7 +8,7 @@ allowed-tools:
   - Grep
 ---
 <objective>
-Detect current project state from .dev.yaml, STATE.md, and .dev/features/ artifacts, then automatically route to the next logical step in the development lifecycle.
+Read project state and suggest the most logical next action based on current phase and artifacts.
 </objective>
 
 <execution_context>

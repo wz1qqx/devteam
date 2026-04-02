@@ -11,7 +11,7 @@ allowed-tools:
   - AskUserQuestion
 ---
 <objective>
-Deploy the current image to a Kubernetes cluster. Handles manifest generation, rolling updates, and post-deploy health checks.
+Deploy the current image tag to a K8s cluster with namespace safety and pod readiness verification.
 </objective>
 
 <execution_context>

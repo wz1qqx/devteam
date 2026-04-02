@@ -21,7 +21,6 @@ diff $ARGUMENTS
 </context>
 
 <process>
-Execute the diff section of the info workflow from @~/.claude/my-dev/workflows/info.md end-to-end.
+Execute the diff workflow from @~/.claude/my-dev/workflows/info.md end-to-end.
 Load project config via: `node "$HOME/.claude/my-dev/bin/my-dev-tools.cjs" init diff`
-Pass "diff" as the subcommand so the workflow routes to the DIFF step.
 </process>

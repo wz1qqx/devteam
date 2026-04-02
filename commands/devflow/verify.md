@@ -11,7 +11,7 @@ allowed-tools:
   - Agent
 ---
 <objective>
-Run post-deployment verification suites: smoke tests, benchmarks, accuracy checks, or a full verification pass.
+Run post-deployment verification suites including smoke tests, benchmarks, accuracy checks, or full verification.
 </objective>
 
 <execution_context>

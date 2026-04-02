@@ -2,7 +2,9 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execSync, exec } = require('child_process');
+const { promisify } = require('util');
+const execAsync = promisify(exec);
 const { output, error, findWorkspaceRoot, expandHome } = require('./core.cjs');
 const { loadConfig, getActiveFeatureWithRepos, getActiveFeature, getActiveCluster, getFeatureRepos, listFeatures } = require('./config.cjs');
 const { loadState, getPhase } = require('./state.cjs');
@@ -16,7 +18,7 @@ const { parseArgs } = require('./core.cjs');
  *
  * Requires schema_version: 2.
  */
-function initWorkflow(workflowName, args) {
+async function initWorkflow(workflowName, args) {
   if (!workflowName) {
     error('Usage: init <workflow> [--feature <name>] [args...]');
   }
@@ -56,7 +58,7 @@ function initWorkflow(workflowName, args) {
   };
   const tuning = { ...defaultTuning, ...((config.defaults && config.defaults.tuning) || {}) };
 
-  const repos = buildReposContext(featureWithRepos, workspace);
+  const repos = await buildReposContextAsync(featureWithRepos, workspace);
   const hooks = featureWithRepos.hooks || {};
   const invariants = featureWithRepos.invariants || {};
   const buildHistory = (featureWithRepos.build_history || []).slice(-tuning.build_history_limit);
@@ -310,7 +312,7 @@ function initWorkspace(config, root) {
   });
 }
 
-function initFeature(config, root, args) {
+async function initFeature(config, root, args) {
   const featureName = args[0] || (config.defaults && config.defaults.active_feature);
   if (!featureName) {
     error('Usage: init feature <name>  (or set defaults.active_feature)');
@@ -325,11 +327,16 @@ function initFeature(config, root, args) {
   const repoEntries = getFeatureRepos(config, featureName);
 
   const repos = {};
-  for (const entry of repoEntries) {
-    repos[entry.repo] = {
-      ...buildSingleRepoContext(entry, workspace),
-      build_type: entry.build_type,
-    };
+  const repoResults = await Promise.all(
+    repoEntries.map(entry =>
+      buildSingleRepoContextAsync(entry, workspace).then(ctx => ({
+        repo: entry.repo,
+        ctx: { ...ctx, build_type: entry.build_type },
+      }))
+    )
+  );
+  for (const { repo, ctx } of repoResults) {
+    repos[repo] = ctx;
   }
 
   const devDir = path.join(root, '.dev');
@@ -359,27 +366,29 @@ function initFeature(config, root, args) {
 
 // --- Helper functions ---
 
-function buildSingleRepoContext(entry, workspace) {
+async function buildSingleRepoContextAsync(entry, workspace) {
   const devWorktree = entry.dev_worktree ? path.resolve(workspace, entry.dev_worktree) : null;
   const baseWorktree = entry.base_worktree ? path.resolve(workspace, entry.base_worktree) : null;
 
   let commitCount = 0;
   let hasUncommitted = false;
   if (devWorktree && fs.existsSync(devWorktree)) {
-    try {
-      const log = execSync(
+    const [logResult, statusResult] = await Promise.allSettled([
+      execAsync(
         `git -C "${devWorktree}" log --oneline ${entry.base_ref || 'HEAD~10'}..HEAD 2>/dev/null | wc -l`,
         { encoding: 'utf8', timeout: 5000 }
-      ).trim();
-      commitCount = parseInt(log, 10) || 0;
-    } catch (_) { /* ignore */ }
-    try {
-      const status = execSync(
+      ),
+      execAsync(
         `git -C "${devWorktree}" status --porcelain 2>/dev/null | head -1`,
         { encoding: 'utf8', timeout: 5000 }
-      ).trim();
-      hasUncommitted = status.length > 0;
-    } catch (_) { /* ignore */ }
+      ),
+    ]);
+    if (logResult.status === 'fulfilled') {
+      commitCount = parseInt(logResult.value.stdout.trim(), 10) || 0;
+    }
+    if (statusResult.status === 'fulfilled') {
+      hasUncommitted = statusResult.value.stdout.trim().length > 0;
+    }
   }
 
   return {
@@ -392,12 +401,20 @@ function buildSingleRepoContext(entry, workspace) {
   };
 }
 
-function buildReposContext(featureWithRepos, workspace) {
+async function buildReposContextAsync(featureWithRepos, workspace) {
   const repos = {};
   if (featureWithRepos.repos) {
-    for (const [repoName, repo] of Object.entries(featureWithRepos.repos)) {
-      repos[repoName] = buildSingleRepoContext(repo, workspace);
-      if (repo.build_type) repos[repoName].build_type = repo.build_type;
+    const entries = Object.entries(featureWithRepos.repos);
+    const results = await Promise.all(
+      entries.map(([repoName, repo]) =>
+        buildSingleRepoContextAsync(repo, workspace).then(ctx => {
+          if (repo.build_type) ctx.build_type = repo.build_type;
+          return { repoName, ctx };
+        })
+      )
+    );
+    for (const { repoName, ctx } of results) {
+      repos[repoName] = ctx;
     }
   }
   return repos;

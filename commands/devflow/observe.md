@@ -10,7 +10,7 @@ allowed-tools:
   - Grep
 ---
 <objective>
-Manage observability stack: deploy Prometheus monitoring, query live metrics, start threshold monitoring, cross-analyze metrics with bench results.
+Manage observability stack including Prometheus monitoring, Grafana dashboards, and metrics analysis.
 </objective>
 
 <execution_context>

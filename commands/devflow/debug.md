@@ -11,10 +11,9 @@ allowed-tools:
   - Grep
   - WebSearch
   - Agent
-  - AskUserQuestion
 ---
 <objective>
-Enter structured investigation mode: gather context, form hypotheses, test them, and resolve the issue.
+Enter structured investigation mode to diagnose issues with hypothesis tracking and experience persistence.
 </objective>
 
 <execution_context>

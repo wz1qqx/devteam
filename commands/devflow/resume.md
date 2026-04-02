@@ -1,7 +1,6 @@
 ---
 name: devflow:resume
 description: Restore session state and show current status
-argument-hint: ""
 allowed-tools:
   - Read
   - Bash
@@ -9,7 +8,7 @@ allowed-tools:
   - Grep
 ---
 <objective>
-Resume a previous session by restoring worktree state, active tasks, and pending items from .dev.yaml and .omc state.
+Restore worktree state, active tasks, and pending items from .dev.yaml and state files.
 </objective>
 
 <execution_context>

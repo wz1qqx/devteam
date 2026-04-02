@@ -6,10 +6,11 @@ allowed-tools:
   - Read
   - Bash
   - Glob
+  - Grep
   - AskUserQuestion
 ---
 <objective>
-Clean up stale resources: orphaned worktrees, old container images, dangling K8s resources. Supports dry-run mode.
+Scan for and optionally remove orphan worktrees, stale container images, and stale K8s pods.
 </objective>
 
 <execution_context>

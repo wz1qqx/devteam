@@ -4,13 +4,13 @@ description: Lock implementation decisions before planning — surface gray area
 argument-hint: "<feature>"
 allowed-tools:
   - Read
+  - Write
   - Bash
   - Glob
-  - Grep
   - AskUserQuestion
 ---
 <objective>
-Identify gray areas in a feature's implementation, let the user make decisions, and lock them in context.md. This feeds directly into the planner — decisions become non-negotiable constraints.
+Surface gray areas in a feature spec, ask the user to decide, and lock those decisions for the planner.
 </objective>
 
 <execution_context>
@@ -23,5 +23,5 @@ $ARGUMENTS
 
 <process>
 Execute the discuss workflow from @~/.claude/my-dev/workflows/discuss.md end-to-end.
-Load project config via: `node "$HOME/.claude/my-dev/bin/my-dev-tools.cjs" init code`
+Load project config via: `node "$HOME/.claude/my-dev/bin/my-dev-tools.cjs" init discuss`
 </process>

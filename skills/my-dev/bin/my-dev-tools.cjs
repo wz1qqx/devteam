@@ -16,8 +16,9 @@ try {
   switch (command) {
     case 'init': {
       const { initWorkflow } = require('./lib/init.cjs');
-      initWorkflow(subcommand, rest);
-      break;
+      // initWorkflow is async (parallel git calls)
+      initWorkflow(subcommand, rest).catch(err => error(err.message));
+      return; // don't fall through to catch block
     }
     case 'config': {
       const { handleConfig } = require('./lib/config.cjs');
