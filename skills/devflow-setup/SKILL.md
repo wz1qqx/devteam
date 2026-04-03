@@ -47,7 +47,6 @@ Verify required tools are available.
 ```bash
 echo "=== Prerequisites ==="
 command -v node &>/dev/null && echo "[OK] Node.js $(node --version)" || echo "[FAIL] Node.js not found — required"
-command -v python3 &>/dev/null && echo "[OK] python3" || echo "[FAIL] python3 not found — required for YAML parsing"
 ```
 
 If any FAIL, advise the user to install the missing tools before proceeding.

@@ -14,7 +14,7 @@ Build a container image using the feature's build configuration, maintaining the
 </objective>
 
 <execution_context>
-@../../skills/my-dev/workflows/build.md
+@../../skills/my-dev/stages/build.md
 </execution_context>
 
 <context>
@@ -22,6 +22,6 @@ $ARGUMENTS
 </context>
 
 <process>
-Execute the build workflow from @../../skills/my-dev/workflows/build.md end-to-end.
+Execute the build stage from @../../skills/my-dev/stages/build.md end-to-end.
 Load project config via: `node "$DEVFLOW_BIN" init build`
 </process>

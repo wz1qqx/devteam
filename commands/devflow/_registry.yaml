@@ -3,18 +3,85 @@
 # Run `node bin/generate-commands.cjs` to regenerate .md files.
 #
 # Special commands (init.md, code.md) are hand-maintained and skipped by the generator.
+#
+# `stage:` entries load from skills/my-dev/stages/ (composable pipeline steps)
+# `workflow:` entries load from skills/my-dev/workflows/ (complete processes)
 
 _skip:
   - init
   - code
 
 commands:
+  # ═══════════════════════════════════════
+  # STAGES (composable pipeline steps)
+  # ═══════════════════════════════════════
+
   build:
     description: Build container image with incremental tag chain
     argument-hint: "[tag] [--push] [variant]"
     objective: Build a container image using the feature's build configuration, maintaining the incremental tag chain.
-    workflow: build.md
+    stage: build.md
     allowed-tools: [Read, Write, Bash, Glob, Grep]
+
+  debug:
+    description: Investigation mode - structured debugging with context gathering
+    argument-hint: "[topic]"
+    objective: Enter structured investigation mode to diagnose issues with hypothesis tracking and experience persistence.
+    stage: debug.md
+    allowed-tools: [Read, Write, Edit, Bash, Glob, Grep, WebSearch, Agent]
+
+  deploy:
+    description: Deploy to Kubernetes cluster
+    argument-hint: "[--cluster <name>]"
+    objective: Deploy the current image tag to a K8s cluster with namespace safety and pod readiness verification.
+    stage: deploy.md
+    allowed-tools: [Read, Write, Bash, Glob, Grep, AskUserQuestion]
+
+  observe:
+    description: Observability — deploy monitoring, query metrics, analyze performance
+    argument-hint: "[--setup|--monitor|--analyze|--query <promql>|--stop]"
+    objective: Manage observability stack including Prometheus monitoring, Grafana dashboards, and metrics analysis.
+    stage: observe.md
+    allowed-tools: [Read, Write, Bash, Glob, Grep]
+
+  rollback:
+    description: Rollback deployment to a previous image tag
+    argument-hint: "[tag]"
+    objective: Rollback a K8s deployment to a previous image tag from build history.
+    stage: rollback.md
+    allowed-tools: [Read, Write, Bash, Glob, AskUserQuestion]
+
+  discuss:
+    description: Lock implementation decisions before planning — surface gray areas and capture user choices
+    argument-hint: "<feature>"
+    objective: Surface gray areas in a feature spec, ask the user to decide, and lock those decisions for the planner.
+    stage: discuss.md
+    allowed-tools: [Read, Write, Bash, Glob, AskUserQuestion]
+
+  learn:
+    description: Deep-dive learning - analyze feature and generate knowledge doc
+    argument-hint: "<feature>"
+    objective: Research a feature's codebase and generate dual-layer Obsidian knowledge documents.
+    stage: learn.md
+    allowed-tools: [Read, Write, Bash, Glob, Grep, WebSearch, Agent]
+
+  log:
+    description: Quick checkpoint - save progress snapshot to devlog
+    argument-hint: "[message]"
+    objective: Record a quick checkpoint in the devlog with current state, changes made, and an optional message.
+    stage: log.md
+    allowed-tools: [Read, Write, Bash]
+
+  verify:
+    description: Post-deploy verification - smoke, bench, accuracy, profile, kernel, or full
+    argument-hint: "[--smoke|--bench|--accuracy|--profile|--kernel|--full]"
+    objective: Run post-deployment verification suites including smoke tests, benchmarks, accuracy checks, or full verification.
+    stage: verify.md
+    allowed-tools: [Read, Write, Bash, Glob, Grep, Agent, AskUserQuestion]
+
+  # ═══════════════════════════════════════
+  # WORKFLOWS (complete processes)
+  # ═══════════════════════════════════════
 
   clean:
     description: Cleanup resources - worktrees, images, K8s resources
@@ -30,20 +97,6 @@ commands:
     workflow: cluster.md
     allowed-tools: [Read, Write, Bash, Glob, AskUserQuestion]
 
-  debug:
-    description: Investigation mode - structured debugging with context gathering
-    argument-hint: "[topic]"
-    objective: Enter structured investigation mode to diagnose issues with hypothesis tracking and experience persistence.
-    workflow: debug.md
-    allowed-tools: [Read, Write, Edit, Bash, Glob, Grep, WebSearch, Agent]
-
-  deploy:
-    description: Deploy to Kubernetes cluster
-    argument-hint: "[--cluster <name>]"
-    objective: Deploy the current image tag to a K8s cluster with namespace safety and pod readiness verification.
-    workflow: deploy.md
-    allowed-tools: [Read, Write, Bash, Glob, Grep, AskUserQuestion]
-
   diff:
     description: Show worktree changes across repositories
     argument-hint: "[repo]"
@@ -51,13 +104,6 @@ commands:
     workflow: info.md
     init-as: diff
     context-prefix: "diff"
-
-  discuss:
-    description: Lock implementation decisions before planning — surface gray areas and capture user choices
-    argument-hint: "<feature>"
-    objective: Surface gray areas in a feature spec, ask the user to decide, and lock those decisions for the planner.
-    workflow: discuss.md
-    allowed-tools: [Read, Write, Bash, Glob, AskUserQuestion]
 
   knowledge:
     description: Knowledge base operations - list, coverage, update, search
@@ -67,32 +113,11 @@ commands:
     init-as: knowledge
     allowed-tools: [Read, Bash, Glob, Grep]
 
-  learn:
-    description: Deep-dive learning - analyze feature and generate knowledge doc
-    argument-hint: "<feature>"
-    objective: Research a feature's codebase and generate dual-layer Obsidian knowledge documents.
-    workflow: learn.md
-    allowed-tools: [Read, Write, Bash, Glob, Grep, WebSearch, Agent]
-
-  log:
-    description: Quick checkpoint - save progress snapshot to devlog
-    argument-hint: "[message]"
-    objective: Record a quick checkpoint in the devlog with current state, changes made, and an optional message.
-    workflow: log.md
-    allowed-tools: [Read, Write, Bash]
-
   next:
     description: Auto-detect project state and suggest the next workflow step
     objective: Read project state and suggest the most logical next action based on current phase and artifacts.
     workflow: next.md
     allowed-tools: [Read, Bash, Glob, Grep, AskUserQuestion]
-
-  observe:
-    description: Observability — deploy monitoring, query metrics, analyze performance
-    argument-hint: "[--setup|--monitor|--analyze|--query <promql>|--stop]"
-    objective: Manage observability stack including Prometheus monitoring, Grafana dashboards, and metrics analysis.
-    workflow: observe.md
-    allowed-tools: [Read, Write, Bash, Glob, Grep]
 
   pause:
     description: Save session state for later resume - writes HANDOFF.json and updates STATE.md
@@ -113,13 +138,6 @@ commands:
     workflow: resume.md
     allowed-tools: [Read, Bash, Glob, Grep]
 
-  rollback:
-    description: Rollback deployment to a previous image tag
-    argument-hint: "[tag]"
-    objective: Rollback a K8s deployment to a previous image tag from build history.
-    workflow: rollback.md
-    allowed-tools: [Read, Write, Bash, Glob, AskUserQuestion]
-
   status:
     description: Project overview - config, worktrees, deployments, pipeline stage
     objective: Display a comprehensive project overview including config, worktree states, active deployments, and pipeline stage.
@@ -134,10 +152,3 @@ commands:
     allowed-tools: [Read, Write, Bash, Glob, AskUserQuestion]
     references:
       - "@../../skills/my-dev/references/schema.md"
-
-  verify:
-    description: Post-deploy verification - smoke, bench, accuracy, or full
-    argument-hint: "[--smoke|--bench|--accuracy|--full]"
-    objective: Run post-deployment verification suites including smoke tests, benchmarks, accuracy checks, or full verification.
-    workflow: verify.md
-    allowed-tools: [Read, Write, Bash, Glob, Grep, Agent, AskUserQuestion]

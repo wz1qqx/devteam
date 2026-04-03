@@ -432,7 +432,7 @@ tags: [debug, <topic>]
 
 ## Learn ↔ Obsidian Knowledge
 
-The learn workflow (`workflows/learn.md`) manages Obsidian knowledge notes with staleness tracking via git commit IDs.
+The learn stage (`stages/learn.md`) manages Obsidian knowledge notes with staleness tracking via git commit IDs.
 
 ### Flow
 

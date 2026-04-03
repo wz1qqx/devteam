@@ -17,7 +17,7 @@ Enter structured investigation mode to diagnose issues with hypothesis tracking 
 </objective>
 
 <execution_context>
-@../../skills/my-dev/workflows/debug.md
+@../../skills/my-dev/stages/debug.md
 </execution_context>
 
 <context>
@@ -25,6 +25,6 @@ $ARGUMENTS
 </context>
 
 <process>
-Execute the debug workflow from @../../skills/my-dev/workflows/debug.md end-to-end.
+Execute the debug stage from @../../skills/my-dev/stages/debug.md end-to-end.
 Load project config via: `node "$DEVFLOW_BIN" init debug`
 </process>

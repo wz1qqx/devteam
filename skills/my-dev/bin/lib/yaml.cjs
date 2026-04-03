@@ -45,6 +45,13 @@ function parseScalar(s) {
   if (s === 'true') return true;
   if (s === 'false') return false;
 
+  // Flow sequence: [a, b, c]
+  if (s[0] === '[' && s[s.length - 1] === ']') {
+    const inner = s.slice(1, -1).trim();
+    if (inner === '') return [];
+    return inner.split(',').map(item => parseScalar(item.trim()));
+  }
+
   if ((s[0] === '"' && s[s.length - 1] === '"') ||
       (s[0] === "'" && s[s.length - 1] === "'")) {
     return s.slice(1, -1);

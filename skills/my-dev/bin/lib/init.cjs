@@ -49,8 +49,8 @@ async function initWorkflow(workflowName, args) {
     'code-exec':   { memory: true, featureState: true },
     'code-review': { memory: true, featureState: true },
     'build':       { buildHistory: true, buildConfig: true },
-    'deploy':      { cluster: true, allClusters: true, deployConfig: true },
-    'verify':      { cluster: true, buildHistory: true, benchmarkConfig: true },
+    'deploy':      { cluster: true, allClusters: true, deployConfig: true, buildServer: true },
+    'verify':      { cluster: true, buildHistory: true, benchmarkConfig: true, deployConfig: true, buildServer: true },
     'rollback':    { cluster: true, allClusters: true, deployConfig: true, fullBuildHistory: true, buildServer: true },
     'observe':     { cluster: true, observability: true },
     'debug':       { memory: true, cluster: true, knowledge: true, buildHistory: true, devlog: true },
@@ -64,6 +64,9 @@ async function initWorkflow(workflowName, args) {
     'learn':       { memory: true, knowledge: true, featureState: true, devlog: true, workspaceRepos: true },
     'quick':       { memory: true, knowledge: true, featureState: true, buildHistory: true },
     'next':        { memory: true, cluster: true, featureState: true, buildHistory: true, artifacts: true },
+    'discuss':     { memory: true, knowledge: true, featureState: true },
+    'knowledge':   { knowledge: true },
+    'switch':      { featureState: true, gitStatus: false },
   };
 
   const needs = workflowNeeds[workflowName] || { all: true };
@@ -146,6 +149,8 @@ async function initWorkflow(workflowName, args) {
     ssh: cluster.ssh,
     namespace: cluster.namespace,
     safety: cluster.safety || 'normal',
+    hardware: cluster.hardware || null,
+    network: cluster.network || null,
   } : null;
 
   const state = (needsAll || needs.artifacts) ? loadState(featureWithRepos.name) : null;
@@ -167,8 +172,8 @@ async function initWorkflow(workflowName, args) {
     'code-exec':   { ...base, ...memoryContext, feature_state: featureState },
     'code-review': { ...base, ...memoryContext, feature_state: featureState },
     'build':       { ...base, build_history: buildHistory, build: featureWithRepos.build || {}, build_server: config.build_server || null },
-    'deploy':      { ...base, cluster: clusterCtx, all_clusters: buildClusterSummary(config), deploy: featureWithRepos.deploy || {} },
-    'verify':      { ...base, cluster: clusterCtx, benchmark: featureWithRepos.benchmark || {}, verify: featureWithRepos.verify || {}, build_history: buildHistory },
+    'deploy':      { ...base, cluster: clusterCtx, all_clusters: buildClusterSummary(config), deploy: featureWithRepos.deploy || {}, build_server: config.build_server || null },
+    'verify':      { ...base, cluster: clusterCtx, benchmark: featureWithRepos.benchmark || {}, verify: featureWithRepos.verify || {}, build_history: buildHistory, deploy: featureWithRepos.deploy || {}, build_server: config.build_server || null },
     'rollback':    { ...base, cluster: clusterCtx, all_clusters: buildClusterSummary(config), deploy: featureWithRepos.deploy || {}, build_history: (featureWithRepos.build_history || []), build_server: config.build_server || null },
     'observe':     { ...base, cluster: clusterCtx, observability: config.observability || {} },
     'debug':       { ...base, ...memoryContext, cluster: clusterCtx, knowledge_notes: knowledgeNotes, build_history: buildHistory, devlog: config.devlog || {} },
@@ -182,6 +187,9 @@ async function initWorkflow(workflowName, args) {
     'learn':       { ...base, ...memoryContext, knowledge_notes: knowledgeNotes, feature_state: featureState, devlog: config.devlog || {}, workspace_repos: config.repos || {} },
     'quick':       { ...base, ...memoryContext, knowledge_notes: knowledgeNotes, feature_state: featureState, build_history: buildHistory },
     'next':        { ...base, ...memoryContext, cluster: clusterCtx, feature_state: featureState, build_history: buildHistory, artifacts: state },
+    'discuss':     { ...base, ...memoryContext, knowledge_notes: knowledgeNotes, feature_state: featureState },
+    'knowledge':   { ...base, knowledge_notes: knowledgeNotes },
+    'switch':      { ...base, feature_state: featureState },
   };
 
   const context = workflowContextMap[workflowName];

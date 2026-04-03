@@ -82,8 +82,9 @@ User → Command (.md) → Workflow (.md) → Agent (.md) + CLI Tools (.cjs)
          Entry Layer    Orchestration     Execution      State Layer
 ```
 
-**Commands** (`commands/devflow/`) — thin entry points that route to workflows.
-**Workflows** (`skills/my-dev/workflows/`) — step-by-step orchestration logic.
+**Commands** (`commands/devflow/`) — thin entry points that route to stages or workflows.
+**Stages** (`skills/my-dev/stages/`) — composable pipeline steps (build, deploy, verify, etc.) that can be chained.
+**Workflows** (`skills/my-dev/workflows/`) — complete processes and management commands.
 **Agents** (`skills/my-dev/agents/`) — specialized AI agents with focused roles.
 **CLI Tools** (`skills/my-dev/bin/`) — Node.js tools for state, config, and template management.
 
@@ -99,6 +100,7 @@ Seven specialized agents, each scoped to a role with minimal tool access:
 | `my-dev-executor` | Code implementation, atomic commits | sonnet |
 | `my-dev-reviewer` | Code review with severity grading (read-only) | sonnet |
 | `my-dev-debugger` | Investigation + hypothesis tracking | sonnet |
+| `my-dev-profiler` | GPU profiling analysis — torch profiler + nsight (read-only) | sonnet |
 
 Model assignment is profile-driven (`quality` / `balanced` / `budget`), configurable in `.dev.yaml`:
 
@@ -190,7 +192,6 @@ The planner groups independent tasks into waves. Tasks within a wave execute as 
 
 **Required:**
 - **Node.js** >= 18
-- **Python 3** + **PyYAML** (`pip install pyyaml`) — for `.dev.yaml` parsing
 
 **Optional (for specific workflows):**
 - **jq** — JSON processing

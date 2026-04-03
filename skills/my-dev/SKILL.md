@@ -27,7 +27,7 @@ Invoke via `/devflow:<action>` or `/devflow <action> [args]`.
 | `code` | Structured coding (auto pipeline depth) |
 | `build` | Container image build |
 | `deploy` / `rollback` | K8s deploy / rollback |
-| `verify` | Post-deploy verification + benchmark |
+| `verify` | Post-deploy verification: smoke, bench, accuracy, profile, kernel |
 | `observe` | Grafana monitoring |
 | `debug` | Investigation mode |
 | `diff` / `status` | Show changes / project overview |

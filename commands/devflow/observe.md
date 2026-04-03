@@ -14,7 +14,7 @@ Manage observability stack including Prometheus monitoring, Grafana dashboards, 
 </objective>
 
 <execution_context>
-@../../skills/my-dev/workflows/observe.md
+@../../skills/my-dev/stages/observe.md
 </execution_context>
 
 <context>
@@ -22,6 +22,6 @@ $ARGUMENTS
 </context>
 
 <process>
-Execute the observe workflow from @../../skills/my-dev/workflows/observe.md end-to-end.
+Execute the observe stage from @../../skills/my-dev/stages/observe.md end-to-end.
 Load project config via: `node "$DEVFLOW_BIN" init observe`
 </process>

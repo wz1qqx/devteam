@@ -12,24 +12,19 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const yaml = require(path.resolve(__dirname, '..', 'skills', 'my-dev', 'bin', 'lib', 'yaml.cjs'));
 
 const REGISTRY_PATH = path.resolve(__dirname, '..', 'commands', 'devflow', '_registry.yaml');
 const OUTPUT_DIR = path.resolve(__dirname, '..', 'commands', 'devflow');
 const dryRun = process.argv.includes('--dry-run');
 
-// Parse YAML via python3 (same approach as config.cjs)
 function loadYaml(filePath) {
   const content = fs.readFileSync(filePath, 'utf8');
-  const result = execSync(
-    `python3 -c "import yaml,json,sys; data=yaml.safe_load(sys.stdin.read()); print(json.dumps(data))"`,
-    { input: content, encoding: 'utf8', timeout: 10000 }
-  );
-  return JSON.parse(result.trim());
+  return yaml.parse(content);
 }
 
 function generateCommandMd(name, cmd) {
-  const workflowName = cmd.workflow || `${name}.md`;
+  const workflowName = cmd.workflow || cmd.stage || `${name}.md`;
   const initAs = cmd['init-as'] || name;
   const contextPrefix = cmd['context-prefix'] || '';
   const argHint = cmd['argument-hint'] || '';
@@ -45,13 +40,17 @@ function generateCommandMd(name, cmd) {
     ? `${contextPrefix} $ARGUMENTS`
     : '$ARGUMENTS';
 
-  const executionContext = cmd.workflow
-    ? `@../../skills/my-dev/workflows/${workflowName}`
+  // Resolve workflow path: stages/ or workflows/ based on registry entry
+  const workflowDir = cmd.stage ? 'stages' : 'workflows';
+  const workflowRef = `@../../skills/my-dev/${workflowDir}/${workflowName}`;
+
+  const executionContext = cmd.workflow || cmd.stage
+    ? workflowRef
     : (cmd.references ? cmd.references[0] : '');
 
   const processLines = [];
-  if (cmd.workflow) {
-    processLines.push(`Execute the ${name} workflow from @../../skills/my-dev/workflows/${workflowName} end-to-end.`);
+  if (cmd.workflow || cmd.stage) {
+    processLines.push(`Execute the ${name} ${cmd.stage ? 'stage' : 'workflow'} from ${workflowRef} end-to-end.`);
     processLines.push(`Load project config via: \`node "$DEVFLOW_BIN" init ${initAs}\``);
   } else {
     processLines.push(`Load project config via: \`node "$DEVFLOW_BIN" init ${initAs}\``);

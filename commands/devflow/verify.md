@@ -1,7 +1,7 @@
 ---
 name: devflow:verify
-description: Post-deploy verification - smoke, bench, accuracy, or full
-argument-hint: "[--smoke|--bench|--accuracy|--full]"
+description: Post-deploy verification - smoke, bench, accuracy, profile, kernel, or full
+argument-hint: "[--smoke|--bench|--accuracy|--profile|--kernel|--full]"
 allowed-tools:
   - Read
   - Write
@@ -16,7 +16,7 @@ Run post-deployment verification suites including smoke tests, benchmarks, accur
 </objective>
 
 <execution_context>
-@../../skills/my-dev/workflows/verify.md
+@../../skills/my-dev/stages/verify.md
 </execution_context>
 
 <context>
@@ -24,6 +24,6 @@ $ARGUMENTS
 </context>
 
 <process>
-Execute the verify workflow from @../../skills/my-dev/workflows/verify.md end-to-end.
+Execute the verify stage from @../../skills/my-dev/stages/verify.md end-to-end.
 Load project config via: `node "$DEVFLOW_BIN" init verify`
 </process>

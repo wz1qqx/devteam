@@ -16,7 +16,7 @@ Research a feature's codebase and generate dual-layer Obsidian knowledge documen
 </objective>
 
 <execution_context>
-@../../skills/my-dev/workflows/learn.md
+@../../skills/my-dev/stages/learn.md
 </execution_context>
 
 <context>
@@ -24,6 +24,6 @@ $ARGUMENTS
 </context>
 
 <process>
-Execute the learn workflow from @../../skills/my-dev/workflows/learn.md end-to-end.
+Execute the learn stage from @../../skills/my-dev/stages/learn.md end-to-end.
 Load project config via: `node "$DEVFLOW_BIN" init learn`
 </process>

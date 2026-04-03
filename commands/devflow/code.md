@@ -29,10 +29,10 @@ Execute the code workflow from @../../skills/my-dev/workflows/code.md end-to-end
 Load project config via: `node "$DEVFLOW_BIN" init code`
 
 Parse the flag from arguments and dispatch accordingly:
-- `--spec`   → Execute @../../skills/my-dev/workflows/code-spec.md (gather requirements, write spec)
-- `--plan`   → Execute @../../skills/my-dev/workflows/code-plan.md (break spec into implementation plan)
-- `--exec`   → Execute @../../skills/my-dev/workflows/code-exec.md (implement plan with TDD)
-- `--review` → Execute @../../skills/my-dev/workflows/code-review.md (code review and quality checks)
+- `--spec`   → Execute @../../skills/my-dev/stages/code-spec.md (gather requirements, write spec)
+- `--plan`   → Execute @../../skills/my-dev/stages/code-plan.md (break spec into implementation plan)
+- `--exec`   → Execute @../../skills/my-dev/stages/code-exec.md (implement plan with TDD)
+- `--review` → Execute @../../skills/my-dev/stages/code-review.md (code review and quality checks)
 - `--status` → Show current pipeline stage and pending items inline (no sub-workflow)
 - No flag    → Auto-detect current stage from .dev.yaml state and resume from there
 </process>
