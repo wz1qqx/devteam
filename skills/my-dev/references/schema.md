@@ -121,13 +121,13 @@ features:
 
     benchmark:
       bench_node: cluster | dedicated
-      mtb_cmd: <string>
+      mtb_cmd: <string>              # Benchmark execution command
       mtb_dir: <path>
       dataset_path: <path>
       model_path: <path>
       api_key: <string>
       frontend_svc_label: <string>
-      output_dir: <string>
+      output_dir: <string>           # Results directory (default: bench-results)
       standard:
         arrival_rate: <float>
         total_sessions: <int>
@@ -136,6 +136,17 @@ features:
         init_prompt_length: <distribution>
         input_length: <distribution>
         output_length: <distribution>
+
+    verify:
+      smoke_cmd: <string>            # Single request command (used for warmup + test)
+      smoke_count: <int>             # Number of test requests (default: 5)
+      warmup_count: <int>            # Number of warmup requests (default: 3)
+      pod_selector: <string>         # kubectl label selector for pod health check
+      accuracy:
+        command: <string>            # Accuracy test command
+        baseline: <string|path>      # Baseline file path for comparison
+        threshold: <float>           # Deviation threshold percentage
+        output_dir: <string>         # Results directory (default: bench-results)
 
     build_history:
       - tag: <string>

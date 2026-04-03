@@ -98,7 +98,6 @@ Seven specialized agents, each scoped to a role with minimal tool access:
 | `my-dev-plan-checker` | Plan verification (read-only) | sonnet |
 | `my-dev-executor` | Code implementation, atomic commits | sonnet |
 | `my-dev-reviewer` | Code review with severity grading (read-only) | sonnet |
-| `my-dev-verifier` | Post-deploy verification | sonnet |
 | `my-dev-debugger` | Investigation + hypothesis tracking | sonnet |
 
 Model assignment is profile-driven (`quality` / `balanced` / `budget`), configurable in `.dev.yaml`:

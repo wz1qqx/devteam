@@ -1,11 +1,11 @@
 # Workflow: verify
 
-<purpose>Post-deploy verification through smoke tests, benchmarks, accuracy checks, or full verification suites. Detects regressions and triggers debug mode on anomalies.</purpose>
-<core_principle>Verify before claiming success. Benchmark comparisons must use temperature=0.0 for deterministic results. Regression threshold is configurable via `tuning.regression_threshold` (default 20%).</core_principle>
+<purpose>Post-deploy verification through smoke tests, benchmarks, accuracy checks, or full verification suites. All commands are config-driven from `.dev.yaml` fields `verify` and `benchmark`.</purpose>
+<core_principle>Verify before claiming success. Never guess commands — if config is missing, abort with a clear message telling the user which field to add.</core_principle>
 
 <process>
 <step name="INIT" priority="first">
-Parse verification flags and load configuration.
+Parse verification mode and load configuration.
 
 ```bash
 # Auto-discover devflow CLI (marketplace or local install)
@@ -15,206 +15,159 @@ INIT=$(node "$DEVFLOW_BIN" init verify)
 WORKSPACE=$(echo "$INIT" | jq -r '.workspace')
 ```
 
-Parse flags from arguments: `--smoke`, `--bench`, `--accuracy`, `--full`
-
-**If NO flag provided**: present modes via AskUserQuestion:
-
-| Mode | Description | Duration |
-|------|-------------|----------|
-| smoke | Quick health check: Pod status + single request test | ~1 min |
-| bench | Performance benchmark: full MTB run | ~10 min |
-| accuracy | Accuracy verification: output comparison + quality metrics | variable |
-| full | Complete: smoke + bench + accuracy | ~15 min |
-
-Let the user pick, then execute with that mode.
-
 Extract verify config:
 ```bash
 CURRENT_TAG=$(echo "$INIT" | jq -r '.feature.current_tag')
-BENCHMARK_CONFIG=$(echo "$INIT" | jq -r '.benchmark')
-ACCURACY_CONFIG=$(echo "$INIT" | jq -r '.benchmark.accuracy // empty')
 CLUSTER_NAME=$(echo "$INIT" | jq -r '.cluster.name')
 NAMESPACE=$(echo "$INIT" | jq -r '.cluster.namespace')
 SSH=$(echo "$INIT" | jq -r '.cluster.ssh')
+REGRESSION_THRESHOLD=$(echo "$INIT" | jq -r '.tuning.regression_threshold')
+
+# Verify config
+SMOKE_CMD=$(echo "$INIT" | jq -r '.verify.smoke_cmd // empty')
+SMOKE_COUNT=$(echo "$INIT" | jq -r '.verify.smoke_count // 5')
+WARMUP_COUNT=$(echo "$INIT" | jq -r '.verify.warmup_count // 3')
+POD_SELECTOR=$(echo "$INIT" | jq -r '.verify.pod_selector // empty')
+
+# Benchmark config
+BENCH_CMD=$(echo "$INIT" | jq -r '.benchmark.mtb_cmd // empty')
+BENCH_OUTPUT_DIR=$(echo "$INIT" | jq -r '.benchmark.output_dir // "bench-results"')
+
+# Accuracy config
+ACCURACY_CMD=$(echo "$INIT" | jq -r '.verify.accuracy.command // empty')
+ACCURACY_BASELINE=$(echo "$INIT" | jq -r '.verify.accuracy.baseline // empty')
+ACCURACY_THRESHOLD=$(echo "$INIT" | jq -r '.verify.accuracy.threshold // empty')
+ACCURACY_OUTPUT_DIR=$(echo "$INIT" | jq -r '.verify.accuracy.output_dir // "bench-results"')
 ```
 
-Gate: Deployment must exist. Check pods are running before starting verification.
+Parse mode from `$ARGUMENTS`: `--smoke`, `--bench`, `--accuracy`, `--full`.
+
+**If NO flag provided**: present modes via AskUserQuestion:
+
+| Mode | Description | When to use |
+|------|-------------|-------------|
+| smoke | Pod health + single-request test | Quick sanity check |
+| bench | Full benchmark via `benchmark.mtb_cmd` | Performance comparison |
+| accuracy | Output comparison via `verify.accuracy.command` | Quality validation |
+| full | smoke + bench + accuracy | Before release |
+
+Gate: `CURRENT_TAG` must exist. If empty: "No current_tag set. Run `/devflow build` first."
 </step>
 
 <step name="SMOKE_TEST">
-Run quick smoke test (always runs first).
+Quick deployment health check. Runs for `--smoke` and `--full`.
 
-1. **Warmup**: Send 2-3 throwaway requests to ensure model is loaded
+Gate: `SMOKE_CMD` must be non-empty. If empty: "No `verify.smoke_cmd` configured in .dev.yaml. Add it to run smoke tests."
+
+1. **Check pods** (if cluster configured and `POD_SELECTOR` set):
    ```bash
-   # Project-specific warmup command from config, or generic curl
-   for i in 1 2 3; do
-     echo "Warmup request $i..."
-     # Execute warmup request (project-specific)
+   $SSH kubectl get pods -n $NAMESPACE -l $POD_SELECTOR --no-headers
+   ```
+   Verify all pods show `Running` + `Ready`. If not, abort: "Pods not ready. Check deployment."
+
+2. **Warmup** ($WARMUP_COUNT requests, discard output):
+   ```bash
+   for i in $(seq 1 $WARMUP_COUNT); do
+     echo "Warmup $i/$WARMUP_COUNT..."
+     bash -c "$SMOKE_CMD" > /dev/null 2>&1
    done
    ```
 
-2. **Measure**: 5 sequential requests, capture key metrics
+3. **Measure** ($SMOKE_COUNT sequential requests, capture timing):
    ```bash
-   echo "Running smoke test: 5 sequential requests..."
-   # Execute 5 requests, capture: TTFT, TPOT, E2E latency, throughput
+   for i in $(seq 1 $SMOKE_COUNT); do
+     echo "Test $i/$SMOKE_COUNT..."
+     time bash -c "$SMOKE_CMD"
+   done
    ```
 
-3. **Report**:
-   ```
-   Smoke Test: $CURRENT_TAG
-   | Metric     | p50    | p90    | p99    |
-   |------------|--------|--------|--------|
-   | TTFT       | X ms   | X ms   | X ms   |
-   | TPOT       | X ms   | X ms   | X ms   |
-   | E2E        | X ms   | X ms   | X ms   |
-   | Throughput | X tok/s |       |        |
+4. **Report**: Show success/failure count and timing summary.
 
-   Status: PASS (all requests succeeded)
-   ```
-
-If smoke test fails (errors, timeouts): abort further verification.
+If any request fails (non-zero exit): abort further verification.
 ```
-Smoke test FAILED. N/5 requests failed.
+Smoke test FAILED. N/$SMOKE_COUNT requests failed.
 Suggestion: /devflow debug verify-smoke
 ```
 </step>
 
 <step name="BENCHMARK">
-Run full benchmark if `--bench` or `--full` flag.
+Full benchmark execution. Runs for `--bench` and `--full`.
+
+Gate: `BENCH_CMD` must be non-empty. If empty: "No `benchmark.mtb_cmd` configured in .dev.yaml. Add it to run benchmarks."
 
 ```bash
-MTB_DIR=$(echo "$BENCHMARK_CONFIG" | jq -r '.mtb_dir')
-MODEL_PATH=$(echo "$BENCHMARK_CONFIG" | jq -r '.model_path')
+mkdir -p "$BENCH_OUTPUT_DIR"
+echo "Starting benchmark: $BENCH_CMD"
+bash -c "$BENCH_CMD"
 ```
 
-Execute benchmark command (background for long runs):
-```bash
-# Build benchmark command from config
-# CRITICAL: temperature=0.0 for reproducible results
-BENCH_CMD="<constructed from benchmark config>"
-echo "Starting benchmark (background)..."
-```
-
-Execute with `run_in_background=true`.
+Execute with `run_in_background=true` for long runs.
 
 On completion:
-1. Save results to `bench-results/`:
-   - JSON log: `bench-results/mtb-${CURRENT_TAG}-run${N}.txt`
-   - Terminal report: `bench-results/mtb-${CURRENT_TAG}-run${N}-report.txt`
+1. Save results:
+   - `$BENCH_OUTPUT_DIR/mtb-${CURRENT_TAG}-run${N}.txt`
+   - `$BENCH_OUTPUT_DIR/mtb-${CURRENT_TAG}-run${N}-report.txt`
 
-2. Compare with previous results via bench-compare skill:
+2. Compare with previous results:
    ```bash
-   # Find previous benchmark for comparison
    PREV_TAG=$(echo "$INIT" | jq -r '.build_history[-2].tag // empty')
-   PREV_RESULT="bench-results/mtb-${PREV_TAG}-run*.txt"
-   CURR_RESULT="bench-results/mtb-${CURRENT_TAG}-run${N}.txt"
    ```
+   If `PREV_TAG` exists, find `$BENCH_OUTPUT_DIR/mtb-${PREV_TAG}-run*.txt` and compare key metrics.
 
-3. Regression check (threshold from `tuning.regression_threshold`, default 20%):
-   ```bash
-   REGRESSION_THRESHOLD=$(echo "$INIT" | jq -r '.tuning.regression_threshold')
-   ```
-   - If any key metric regressed > $REGRESSION_THRESHOLD%:
+3. Regression check (threshold: `$REGRESSION_THRESHOLD`%, default 20%):
+   - If any key metric regressed beyond threshold:
      ```
      [ANOMALY] Performance regression detected:
-       TTFT p99: 2.3s -> 3.1s (+35%)
-
+       <metric>: <old> -> <new> (+<pct>%)
      Enter debug mode? /devflow debug bench-regression
      ```
 </step>
 
 <step name="ACCURACY_TEST">
-Run accuracy verification if `--accuracy` or `--full` flag.
+Accuracy verification. Runs for `--accuracy` and `--full`.
+
+Gate: `ACCURACY_CMD` must be non-empty. If empty: "No `verify.accuracy.command` configured in .dev.yaml. Add it to run accuracy tests."
 
 ```bash
-if [ -n "$ACCURACY_CONFIG" ]; then
-  ACCURACY_CMD=$(echo "$ACCURACY_CONFIG" | jq -r '.command')
-  BASELINE=$(echo "$ACCURACY_CONFIG" | jq -r '.baseline')
-  THRESHOLD=$(echo "$ACCURACY_CONFIG" | jq -r '.threshold')
-  OUTPUT_DIR=$(echo "$ACCURACY_CONFIG" | jq -r '.output_dir // "bench-results"')
-fi
-```
-
-Execute accuracy test:
-```bash
-echo "Running accuracy verification..."
+mkdir -p "$ACCURACY_OUTPUT_DIR"
+echo "Running accuracy verification: $ACCURACY_CMD"
 bash -c "$ACCURACY_CMD"
 ```
 
-Save results: `$OUTPUT_DIR/accuracy-${CURRENT_TAG}-run${N}.json`
+Save results: `$ACCURACY_OUTPUT_DIR/accuracy-${CURRENT_TAG}-run${N}.json`
 
-Compare against baseline:
-- Within threshold: PASS
+Compare against baseline (`$ACCURACY_BASELINE`):
+- Within `$ACCURACY_THRESHOLD`%: PASS
 - Exceeds threshold:
   ```
   [ANOMALY] Accuracy deviation detected:
-    Metric: <name>
-    Baseline: <value>
-    Current: <value>
-    Deviation: <pct>% (threshold: <threshold>%)
-
+    Deviation: <pct>% (threshold: $ACCURACY_THRESHOLD%)
   Enter debug mode? /devflow debug accuracy-regression
   ```
 </step>
 
-<step name="FULL_ANALYSIS">
-Run full analysis if `--full` flag. Includes observe --analyze.
-
-After smoke + bench + accuracy complete:
-```
-Running cross-analysis...
-```
-
-Use external Grafana dashboard for metrics correlation analysis.
-
-Generate comprehensive verification report:
-```markdown
-# Verification Report: $CURRENT_TAG
-
-## Smoke Test: PASS/FAIL
-<smoke results>
-
-## Benchmark: PASS/FAIL/REGRESSION
-<bench comparison table>
-
-## Accuracy: PASS/FAIL/DEVIATION
-<accuracy comparison>
-
-## Metrics Analysis
-<from observe --analyze>
-
-## Overall Verdict: PASS / PASS_WITH_WARNINGS / FAIL
-```
-</step>
-
-<step name="POST_VERIFY_HOOKS">
+<step name="POST_VERIFY">
 Run post-verify hooks and update state.
 
-Execute post_verify checks from `.hooks.post_verify` in .dev.yaml:
-For each hook in `.hooks.post_verify`, perform the check inline:
-- Read the hook name and perform the corresponding verification
-- Post-verify hooks are non-blocking: warn on failure but do not abort
+Execute `.hooks.post_verify` checks from .dev.yaml (non-blocking: warn on failure).
 
 Update `.dev.yaml`:
-- Set `project.phase` to `verify`
+- Set `feature.phase` to `verify`
 
 Checkpoint (@references/shared-patterns.md#checkpoint):
 ```bash
 node "$DEVFLOW_BIN" checkpoint \
   --action "verify" \
-  --summary "Verify $VERDICT: $CURRENT_TAG ($FLAGS)"
+  --summary "Verify $VERDICT: $CURRENT_TAG ($MODE)"
 ```
 
 Output:
 ```
 Verification complete: $CURRENT_TAG
+Mode: $MODE
 Verdict: $VERDICT
 
-Results saved:
-  bench-results/mtb-$CURRENT_TAG-run$N.txt
-  bench-results/mtb-$CURRENT_TAG-run$N-report.txt
-
-Next: /devflow observe --analyze (for deeper analysis)
+Next: /devflow observe (for ongoing monitoring)
 ```
 </step>
 
@@ -222,7 +175,7 @@ Next: /devflow observe --analyze (for deeper analysis)
 @references/shared-patterns.md#experience-sink
 
 Detection criteria: benchmark regression > $REGRESSION_THRESHOLD%, accuracy deviation > threshold, smoke test failure
-Target file: `performance-lessons.md` (bench/smoke) or `accuracy-lessons.md` (accuracy)
-Context fields: `tag=$CURRENT_TAG, verdict=$VERDICT, flags=$FLAGS`
+Target file: `verify-lessons.md`
+Context fields: `tag=$CURRENT_TAG, verdict=$VERDICT, mode=$MODE`
 </step>
 </process>
