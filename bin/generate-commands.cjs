@@ -17,10 +17,10 @@
 
 const fs = require('fs');
 const path = require('path');
-const yaml = require(path.resolve(__dirname, '..', 'skills', 'my-dev', 'bin', 'lib', 'yaml.cjs'));
+const yaml = require(path.resolve(__dirname, '..', 'lib', 'yaml.cjs'));
 
-const REGISTRY_PATH = path.resolve(__dirname, '..', 'commands', 'devflow', '_registry.yaml');
-const OUTPUT_DIR = path.resolve(__dirname, '..', 'commands', 'devflow');
+const REGISTRY_PATH = path.resolve(__dirname, '..', 'commands', 'devteam', '_registry.yaml');
+const OUTPUT_DIR = path.resolve(__dirname, '..', 'commands', 'devteam');
 const dryRun = process.argv.includes('--dry-run');
 
 function loadYaml(filePath) {
@@ -29,9 +29,9 @@ function loadYaml(filePath) {
 }
 
 function resolveSkillPath(cmd) {
-  if (cmd.skill) return `skills/my-dev/${cmd.skill}`;
-  if (cmd.stage) return `skills/my-dev/stages/${cmd.stage}`;
-  if (cmd.workflow) return `skills/my-dev/workflows/${cmd.workflow}`;
+  if (cmd.skill) return `skills/${cmd.skill}`;
+  if (cmd.stage) return `skills/stages/${cmd.stage}`;
+  if (cmd.workflow) return `skills/workflows/${cmd.workflow}`;
   return '';
 }
 
@@ -70,14 +70,14 @@ function generateCommandMd(name, cmd) {
   const processLines = [];
   processLines.push('**Step 1**: Discover CLI tool and load config:');
   processLines.push('```bash');
-  processLines.push('DEVFLOW_BIN=$(ls ~/.claude/plugins/cache/devflow/devflow/*/skills/my-dev/bin/my-dev-tools.cjs 2>/dev/null | head -1)');
+  processLines.push('DEVFLOW_BIN=$(ls ~/.claude/plugins/cache/devteam/devteam/*/lib/devteam.cjs 2>/dev/null | head -1)');
   processLines.push(`INIT=$(node "$DEVFLOW_BIN" init ${initAs})`);
   processLines.push('```');
   processLines.push('');
 
   if (skillPath) {
     processLines.push(`**Step 2**: Read the ${skillType} file and execute it end-to-end:`);
-    const globPattern = `~/.claude/plugins/cache/devflow/devflow/*/${skillPath}`;
+    const globPattern = `~/.claude/plugins/cache/devteam/devteam/*/${skillPath}`;
     processLines.push('```bash');
     processLines.push(`SKILL_FILE=$(ls ${globPattern} 2>/dev/null | head -1)`);
     processLines.push('```');
@@ -91,7 +91,7 @@ function generateCommandMd(name, cmd) {
 
   const lines = [
     '---',
-    `name: devflow:${name}`,
+    `name: devteam:${name}`,
     `description: ${cmd.description}`,
   ];
   if (argHint) lines.push(`argument-hint: "${argHint}"`);

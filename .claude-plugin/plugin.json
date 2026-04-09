@@ -1,12 +1,13 @@
 {
-  "name": "devflow",
-  "version": "1.0.0",
-  "description": "Multi-repo development lifecycle management: structured coding (spec/plan/exec/review), container build, K8s deploy, verification, observability, and debug workflows",
+  "name": "devteam",
+  "version": "2.0.0",
+  "description": "Automated multi-agent pipeline orchestration for full development lifecycle — one command from spec to verified deployment with optimization feedback loops",
   "author": {
     "name": "gailun"
   },
   "license": "MIT",
-  "keywords": ["devops", "workflow", "multi-repo", "k8s", "lifecycle"],
+  "keywords": ["agent", "team", "orchestration", "multi-repo", "k8s", "pipeline"],
   "skills": "./skills/",
-  "commands": "./commands/"
+  "commands": "./commands/",
+  "agents": "./agents/"
 }

@@ -1,16 +1,16 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-  "name": "devflow",
-  "description": "Multi-repo development lifecycle management plugin for Claude Code",
+  "name": "devteam",
+  "description": "Automated multi-agent pipeline orchestration for Claude Code",
   "owner": {
     "name": "gailun"
   },
   "plugins": [
     {
-      "name": "devflow",
+      "name": "devteam",
       "source": "./",
-      "description": "Multi-repo development lifecycle management: structured coding (spec/plan/exec/review), container build, K8s deploy, verification, observability, and debug workflows",
-      "version": "1.0.0",
+      "description": "Automated multi-agent pipeline orchestration for full development lifecycle — one command from spec to verified deployment with optimization feedback loops",
+      "version": "2.0.0",
       "author": {
         "name": "gailun"
       }

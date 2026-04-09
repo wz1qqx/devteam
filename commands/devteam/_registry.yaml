@@ -1,0 +1,99 @@
+# devteam Command Registry
+# Source of truth for all command definitions.
+# Run `node bin/generate-commands.cjs` to regenerate .md files.
+
+_skip: []
+
+commands:
+  # ═══════════════════════════════════════
+  # CORE — Automated Pipeline
+  # ═══════════════════════════════════════
+
+  team:
+    description: Automated multi-agent pipeline — one command, full lifecycle with optimization feedback loops
+    argument-hint: "<feature> [--max-loops N] [--skip-spec]"
+    objective: Start the full automated pipeline for a feature using TeamCreate-based multi-agent orchestration. Runs spec → plan → code → review → build → ship → verify with automatic feedback loops.
+    skill: orchestrator.md
+    allowed-tools: [Read, Write, Bash, Glob, Grep, Agent, AskUserQuestion]
+
+  # ═══════════════════════════════════════
+  # SESSION MANAGEMENT
+  # ═══════════════════════════════════════
+
+  pause:
+    description: Save session state for later resume — writes HANDOFF.json and updates STATE.md
+    objective: Capture the current session state into HANDOFF.json and STATE.md for zero-loss session handoff.
+    skill: pause.md
+    allowed-tools: [Read, Write, Bash, Glob, Grep]
+
+  resume:
+    description: Restore session state and show current status
+    objective: Restore worktree state, active tasks, and pending items from .dev.yaml and state files.
+    skill: resume.md
+    allowed-tools: [Read, Bash, Glob, Grep]
+
+  # ═══════════════════════════════════════
+  # PROJECT VIEW
+  # ═══════════════════════════════════════
+
+  status:
+    description: Project overview — team status, pipeline stage, deployments
+    objective: Display a comprehensive project overview including config, worktree states, active deployments, and pipeline stage.
+    init-as: status
+    allowed-tools: [Read, Bash, Glob, Grep]
+    inline-process: "Parse $INIT JSON. Display: active feature, current phase, repos (commits ahead, uncommitted), cluster info, build history, team status if active. Format as dashboard table."
+
+  diff:
+    description: Show worktree changes across repositories
+    argument-hint: "[repo]"
+    objective: Display a summary of uncommitted and staged changes across all worktrees managed by the project.
+    init-as: diff
+    context-prefix: "diff"
+    inline-process: "For each repo in $INIT, run git -C <dev_worktree> diff --stat <base_ref>. If specific repo given, show full diff. Otherwise show summary table."
+
+  # ═══════════════════════════════════════
+  # KNOWLEDGE
+  # ═══════════════════════════════════════
+
+  learn:
+    description: Research a topic (code, URL, or file) and create/update wiki pages
+    argument-hint: "<topic|feature|URL|filepath>"
+    objective: Research a topic from any source and build/update focused, interlinked wiki pages.
+    skill: learn.md
+    allowed-tools: [Read, Write, Bash, Glob, Grep, WebSearch, WebFetch, Agent]
+
+  knowledge:
+    description: Wiki operations — search, lint, list
+    argument-hint: "<search|lint|list> [query]"
+    objective: Manage the wiki knowledge base — search for answers, run health checks, or list pages.
+    init-as: knowledge
+    allowed-tools: [Read, Write, Bash, Glob, Grep]
+    inline-process: "Parse action (search/lint/list). SEARCH: match wiki/index.md, load pages, synthesize. LINT: check over-long, stale, orphans, dead links. LIST: display index."
+
+  # ═══════════════════════════════════════
+  # PROJECT MANAGEMENT
+  # ═══════════════════════════════════════
+
+  init:
+    description: Initialize workspace or add a new feature
+    argument-hint: "<workspace|feature> [name]"
+    objective: Bootstrap a new workspace (.dev.yaml, directories, baselines) or add a new feature with scope, worktrees, and initial config.
+    init-as: workspace
+    allowed-tools: [Read, Write, Bash, Glob, Grep, AskUserQuestion]
+    inline-process: "Parse action (workspace|feature). WORKSPACE: create .dev.yaml with schema_version 2, create .dev/ directory, configure repos and baselines, set defaults. FEATURE: prompt for name/description/scope, create feature entry in .dev.yaml, create .dev/features/<name>/ directory, set as active feature."
+
+  cluster:
+    description: Manage Kubernetes clusters — add, use, list
+    argument-hint: "<add|use|list> [name]"
+    objective: Manage cluster profiles in .dev.yaml.
+    init-as: cluster
+    allowed-tools: [Read, Write, Bash, Glob, AskUserQuestion]
+    inline-process: "Parse action (add/use/list). LIST: show clusters + active. USE: switch active_cluster. ADD: interactive cluster config collection (ssh, namespace, safety, hardware), save to .dev.yaml."
+
+  clean:
+    description: Cleanup resources — worktrees, images, K8s resources
+    argument-hint: "[--dry-run]"
+    objective: Scan for and optionally remove orphan worktrees, stale container images, and stale K8s pods.
+    init-as: clean
+    allowed-tools: [Read, Bash, Glob, Grep, AskUserQuestion]
+    inline-process: "Scan worktrees (orphans not in any feature scope), images (stale), pods (Error/CrashLoop). Report findings. With --dry-run, only report. Otherwise confirm each category before cleanup."

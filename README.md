@@ -1,178 +1,211 @@
-# devflow
+# devteam
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Claude Code Plugin](https://img.shields.io/badge/Claude_Code-Plugin-blueviolet)](https://claude.ai/claude-code)
 [![Node.js >= 18](https://img.shields.io/badge/Node.js-%3E%3D18-green)](https://nodejs.org)
+[![v2.0.0](https://img.shields.io/badge/version-2.0.0-orange)](https://github.com/wz1qqx/devflow-plugin)
 
-A Claude Code plugin for managing development lifecycles — structured coding, container build, K8s deploy, testing, and debug — all from slash commands.
+Multi-agent pipeline orchestration for Claude Code. One command launches a team of specialized AI agents that take a feature from spec to verified deployment — with automatic feedback loops.
 
-## Why devflow
+## Why devteam
 
-Most AI coding tools handle single files. Real projects span multiple repos, need container builds, cluster deployments, and post-deploy verification. devflow bridges that gap with a **6-stage pipeline** and a routing flowchart that auto-selects the right step:
+Most AI coding tools operate as a single agent on a single file. Real projects need requirements gathering, multi-file implementation, code review, container builds, cluster deployments, and post-deploy verification. devteam orchestrates **8 specialized agents** through a **7-stage pipeline** with built-in feedback loops:
 
 ```
-DEFINE  →  PLAN  →  CODE  →  VERIFY  →  REVIEW  →  SHIP
-/spec      /plan    /code    /test      /review    /ship
+Spec → Plan → Code → Review → Build → Ship → Verify
+                       ↑                        │
+                       └── vLLM-Opter (on FAIL) ─┘
+                           (optimization loop, max N iterations)
 ```
 
-No manual pipeline selection needed — devflow's meta-skill routes to the right stage based on project state, or you can invoke any stage directly.
+The orchestrator is a coordinator, not an implementer. Each agent has scoped tools and a single responsibility. Review failures trigger code fixes. Verification failures trigger performance analysis and re-optimization.
 
 ## Quick Start
 
 ```bash
 # Install from marketplace
 claude plugin marketplace add wz1qqx/devflow-plugin
-claude plugin install devflow@devflow
+claude plugin install devteam@devteam
 
 # In your project directory
-/devflow init                        # Initialize workspace (.dev.yaml)
-/devflow init feature my-feature     # Create a feature
-/devflow next                        # Auto-detect state, suggest next step
+/devteam init workspace              # Initialize workspace (.dev.yaml)
+/devteam init feature my-feature     # Create a feature
+
+# Launch the full automated pipeline
+/devteam team my-feature
 ```
+
+## The Agent Team
+
+Eight specialized agents, each with scoped tool access and a single role:
+
+| Agent | Role | Tools |
+|-------|------|-------|
+| **Spec** | Interactive QA (5 mandatory questions), surface gray areas, lock decisions | Read, Write, Bash, AskUserQuestion |
+| **Planner** | Wave-grouped task plan with dependency graph, build mode detection | Read, Write, Bash, Glob, Grep |
+| **Coder** | TDD implementation, one atomic `git commit` per task | Read, Write, Edit, Bash, Grep, Glob |
+| **Reviewer** | 5-axis review: correctness, readability, architecture, security, performance | Read, Bash, Grep, Glob (read-only) |
+| **Builder** | Pre-ship checklist, incremental Docker tag chain, registry push | Read, Write, Bash, Glob, Grep |
+| **Shipper** | GPU env check, namespace safety, kubectl deploy, pod readiness | Read, Write, Bash, AskUserQuestion |
+| **Verifier** | Smoke tests (3/3 required), 3x benchmarks, metric comparison | Read, Write, Bash, Glob, Grep |
+| **vLLM-Opter** | Torch profiler + nsight kernel analysis, 9-category classification | Read, Write, Bash, Glob, Grep |
+
+All agents follow the same team protocol: claim task → mark in_progress → do work → mark completed → message orchestrator.
 
 ## Commands
 
-### Pipeline (6 stages)
-
-| Command | Stage | Description |
-|---------|-------|-------------|
-| `/devflow spec` | DEFINE | Surface gray areas, lock decisions, generate structured spec |
-| `/devflow plan` | PLAN | Read-only analysis → dependency graph → vertical slices |
-| `/devflow code` | CODE | RED → GREEN → REFACTOR → Commit with wave parallelism |
-| `/devflow test` | VERIFY | Unit / integration / e2e tests, Prove-It pattern for bugs |
-| `/devflow review` | REVIEW | Five-axis review: correctness, readability, architecture, security, performance |
-| `/devflow ship` | SHIP | Strategy-driven shipping (docker / k8s / ci-cd) with rollback |
-
-### Independent Skills
+### Core — Automated Pipeline
 
 | Command | Description |
 |---------|-------------|
-| `/devflow quick` | Ad-hoc task with atomic commits — skip full pipeline |
-| `/devflow debug` | Structured investigation: reproduce → localize → fix → guard |
-| `/devflow vllm-opt` | vLLM performance: torch profiler, nsight kernels, benchmarks |
-| `/devflow grafana-setup` | Deploy Grafana monitoring stack in a k8s cluster |
-| `/devflow learn` | Research a topic and create/update interlinked wiki pages |
-| `/devflow code-simplify` | Reduce complexity while preserving exact behavior |
+| `/devteam team <feature>` | Full pipeline: spec → plan → code → review → build → ship → verify |
+
+Options: `--max-loops N` (optimization iterations, default 3), `--skip-spec` (skip if spec.md exists)
+
+### Session Management
+
+| Command | Description |
+|---------|-------------|
+| `/devteam pause` | Save session state (HANDOFF.json + STATE.md) |
+| `/devteam resume` | Restore session, show status dashboard, suggest next action |
+
+### Project View
+
+| Command | Description |
+|---------|-------------|
+| `/devteam status` | Dashboard: feature, phase, repos, cluster, build history, team status |
+| `/devteam diff [repo]` | Worktree changes across repositories |
+
+### Knowledge
+
+| Command | Description |
+|---------|-------------|
+| `/devteam learn <topic\|URL\|file>` | Research and create/update interlinked wiki pages |
+| `/devteam knowledge <search\|lint\|list>` | Search wiki, run health checks, list pages |
 
 ### Project Management
 
 | Command | Description |
 |---------|-------------|
-| `/devflow init` | Initialize workspace or create a new feature |
-| `/devflow status` | Project overview — config, worktrees, deployments, pipeline stage |
-| `/devflow diff` | Show worktree changes across repositories |
-| `/devflow switch` | Switch active feature context |
-| `/devflow cluster` | Manage K8s cluster profiles (add / use / list) |
-| `/devflow clean` | Clean orphan worktrees, stale images, K8s resources |
-
-### Knowledge & Session
-
-| Command | Description |
-|---------|-------------|
-| `/devflow knowledge` | Wiki operations — search, lint, list |
-| `/devflow log` | Quick checkpoint — save progress snapshot to devlog |
-| `/devflow pause` | Save session state (HANDOFF.json + STATE.md) |
-| `/devflow resume` | Restore session state and continue where you left off |
-| `/devflow next` | Auto-detect project state and suggest the next step |
+| `/devteam init <workspace\|feature>` | Initialize workspace or add a new feature |
+| `/devteam cluster <add\|use\|list>` | Manage K8s cluster profiles |
+| `/devteam clean [--dry-run]` | Clean orphan worktrees, stale images, K8s resources |
 
 ## Architecture
 
 ```
-User → Command (.md) → Skill (.md) → Agent (.md) + CLI (.cjs)
-       Entry Layer      Process        Execution     State Layer
+User → /devteam team
+         │
+         ├── Command (.md)        Entry point (commands/devteam/)
+         ├── Orchestrator (.md)   Pipeline coordinator (skills/orchestrator.md)
+         ├── Agents (.md)         8 specialized agents (agents/)
+         ├── CLI (.cjs)           State & config management (lib/)
+         └── Hooks (.js)          Context monitor, persistent mode, statusline (hooks/)
 ```
 
-**Commands** (`commands/devflow/`) — thin entry points generated from `_registry.yaml`. Each references a skill file and loads context via CLI.
-
-**Skills** (`skills/my-dev/`) — flat directory of self-contained process files. Each skill defines steps, checkpoints, anti-rationalization tables, and verification gates.
-
-**Agents** (`skills/my-dev/agents/`) — specialized AI agents spawned by skills for isolated sub-tasks.
-
-**CLI** (`skills/my-dev/bin/`) — minimal Node.js tools for state management, config loading, and checkpoints.
-
-### Skill Anatomy
-
-Every skill follows a consistent structure:
+### Pipeline Flow
 
 ```
-# Skill: <name> (<PHASE>)
-
-<purpose>             → What the skill does
-<core_principle>      → Non-negotiable rule
-
-<process>
-  <step name="INIT">  → CLI context loading
-  <step name="...">   → Concrete steps with bash code blocks
-  <step name="SAVE">  → Persist artifacts + state update + checkpoint
-</process>
-
-<anti_rationalization>
-  | Excuse | Reality |  → Prevents the agent from cutting corners
-  Red Flags:            → Warning signs
-  Verification:         → Concrete evidence required
-</anti_rationalization>
+/devteam team my-feature
+  │
+  ├── TeamCreate("devteam-my-feature")
+  ├── Create 6-7 tasks with dependency chain
+  │
+  ├── Spawn Spec agent      → writes spec.md
+  ├── Spawn Planner agent   → writes plan.md (wave-grouped tasks)
+  ├── Spawn Coder agent     → implements plan, atomic commits
+  ├── Spawn Reviewer agent  → 5-axis review
+  │     └── FAIL? → re-spawn Coder (max 2 cycles)
+  ├── Spawn Builder agent   → Docker build + push
+  ├── Spawn Shipper agent   → K8s deploy + readiness
+  └── Spawn Verifier agent  → smoke + benchmarks
+        └── FAIL? → Spawn vLLM-Opter → re-run plan/code/review/build/ship/verify
+                    (max N optimization loops)
 ```
 
-### Meta-Skill Routing
+### Feedback Loops
 
-`SKILL.md` is loaded at session start and contains a decision tree that routes tasks to the correct skill:
+- **Review loop**: Reviewer FAIL → Coder fix → Reviewer re-check (max 2 cycles)
+- **Optimization loop**: Verifier FAIL → vLLM-Opter analysis → Planner re-plan → full re-execution (max N loops, configurable via `tuning.max_optimization_loops`)
 
-```
-Task arrives
-    ├── Trivial fix? ──────────→ /quick
-    ├── Need clarity? ─────────→ /spec
-    ├── Have spec, need plan? ─→ /plan
-    ├── Implementing code? ────→ /code
-    ├── Need to test? ─────────→ /test
-    ├── Code to review? ───────→ /review
-    ├── Ready to ship? ────────→ /ship
-    ├── Something broke? ──────→ /debug
-    └── vLLM performance? ─────→ /vllm-opt
-```
+### Anti-Rationalization
 
-### Agents
+Every skill and agent includes:
+- **Anti-rationalization table**: common excuses mapped to reality checks
+- **Red flags**: warning signs that the agent is cutting corners
+- **Verification checklist**: concrete evidence required before proceeding
 
-Five specialized agents, each scoped to a role with minimal tool access:
-
-| Agent | Role |
-|-------|------|
-| `my-dev-planner` | Wave-grouped task planning with built-in verification |
-| `my-dev-executor` | Code implementation, atomic commits |
-| `my-dev-reviewer` | Five-axis code review (read-only) |
-| `my-dev-researcher` | Codebase exploration + wiki loading (read-only) |
-| `my-dev-debugger` | Hypothesis → Action → Result → Lesson cycle |
+The agent cannot self-certify — evidence is required at every gate.
 
 ### Directory Layout
 
 ```
 devflow-plugin/
-├── commands/devflow/           # 23 slash commands (1 hand-maintained + 22 generated)
-│   └── _registry.yaml          # Source of truth
-├── skills/my-dev/
-│   ├── SKILL.md                # Meta-skill: routing + core behaviors
-│   ├── spec.md ... ship.md     # 6 pipeline stages
-│   ├── debug.md ... resume.md  # 11 independent skills & utilities
-│   ├── agents/                 # 5 agent definitions
-│   ├── references/             # 4 shared reference docs
-│   └── bin/                    # CLI tools (7 modules)
-└── bin/generate-commands.cjs   # Command code generator
+├── .claude-plugin/
+│   ├── plugin.json                # Plugin manifest (devteam v2.0.0)
+│   └── marketplace.json           # Marketplace listing
+│
+├── agents/                        # 8 specialized agent definitions
+│   ├── spec.md                    # Requirements gathering
+│   ├── planner.md                 # Wave-grouped task planning
+│   ├── coder.md                   # TDD implementation
+│   ├── reviewer.md                # 5-axis code review (read-only)
+│   ├── builder.md                 # Docker build + push
+│   ├── shipper.md                 # K8s deployment
+│   ├── verifier.md                # Smoke tests + benchmarks
+│   └── vllm-opter.md              # Performance analysis + optimization
+│
+├── commands/devteam/              # 10 slash commands
+│   ├── _registry.yaml             # Source of truth
+│   ├── team.md                    # Primary pipeline command (hand-maintained)
+│   └── *.md                       # Generated from registry
+│
+├── skills/                        # Process definitions
+│   ├── SKILL.md                   # Meta-skill: routing table + 6 core behaviors
+│   ├── orchestrator.md            # Full pipeline orchestration
+│   ├── learn.md                   # Wiki ingest (code/URL/file sources)
+│   ├── pause.md                   # Session state save
+│   ├── resume.md                  # Session state restore
+│   └── references/schema.md       # .dev.yaml schema reference
+│
+├── lib/                           # Node.js CLI modules
+│   ├── devteam.cjs                # CLI entry point
+│   ├── init.cjs                   # Compound context loader (17 workflow types)
+│   ├── config.cjs                 # .dev.yaml loading + resolution
+│   ├── state.cjs                  # Phase management
+│   ├── session.cjs                # STATE.md + HANDOFF.json read/write
+│   ├── checkpoint.cjs             # Devlog checkpoints
+│   ├── yaml.cjs                   # YAML parser
+│   └── core.cjs                   # Shared utilities
+│
+├── hooks/                         # Claude Code hooks
+│   ├── hooks.json                 # Hook registrations
+│   ├── my-dev-context-monitor.js  # PostToolUse: context window warnings
+│   ├── devflow-persistent.js      # Stop: persistent mode engine
+│   └── my-dev-statusline.js       # Statusline: model | ctx usage | project | feature
+│
+├── templates/STATE.md             # STATE.md template
+└── bin/
+    ├── generate-commands.cjs      # Regenerate commands from registry
+    ├── migrate-to-wiki.cjs        # Migration tool
+    └── setup.sh                   # Local dev verification
 ```
 
 ## Configuration
 
-Create `.dev.yaml` in your project root (or let `/devflow init` generate it):
+Create `.dev.yaml` in your project root (or let `/devteam init` generate it):
 
 ```yaml
 schema_version: 2
 
 workspace: ~/my-project
-vault: ~/Obsidian/MyVault              # Optional: wiki knowledge persistence
+vault: ~/Obsidian/MyVault              # Optional: wiki persistence
 
 repos:
   my-repo:
     upstream: https://github.com/org/repo
     baselines:
-      v1.0: my-repo-v1.0              # worktree directory name
+      v1.0: my-repo-v1.0
 
 build_server:
   ssh: user@build-server
@@ -205,30 +238,24 @@ features:
       strategy: k8s                    # docker | k8s | ci-cd
 ```
 
-See [`skills/my-dev/references/schema.md`](skills/my-dev/references/schema.md) for the complete schema reference.
+See [`skills/references/schema.md`](skills/references/schema.md) for the complete schema reference.
 
 ## Key Concepts
 
-### 6-Stage Pipeline
+### Wave-Based Parallel Execution
 
-Each stage has an anti-rationalization table (common excuses vs reality), red flags, and concrete verification requirements. The agent cannot self-certify — evidence is required at every gate.
+The planner groups independent tasks into waves. Tasks within a wave execute in parallel via subagents, each producing atomic git commits. Dependencies between waves are respected sequentially.
 
 ### Strategy-Driven Shipping
 
-`/devflow ship` reads `ship.strategy` from `.dev.yaml` and routes to the appropriate flow:
+`/devteam team` reads `ship.strategy` from `.dev.yaml` and routes to the appropriate flow:
 - **docker** — build image → push → update tag
 - **k8s** — build + deploy to cluster → wait ready → health check
 - **ci-cd** — trigger CI pipeline → wait → verify
 
-Rollback is built into the ship skill, not a separate command.
-
-### Wave-Based Parallel Execution
-
-The planner groups independent tasks into waves. Tasks within a wave execute as parallel subagents, each producing atomic git commits. Dependencies between waves are respected sequentially.
-
 ### Namespace Safety
 
-All `kubectl` commands are enforced with `-n <namespace>`. Production clusters (`safety: prod`) require explicit confirmation before any destructive operation.
+All `kubectl` commands are enforced with `-n <namespace>`. Production clusters (`safety: prod`) require the user to type the namespace name as confirmation before any destructive operation.
 
 ### Three-Tier Knowledge
 
@@ -238,11 +265,15 @@ All `kubectl` commands are enforced with `-n <namespace>`. Production clusters (
 
 ### Session Handoff
 
-`/devflow pause` captures uncommitted files, plan progress, and context notes into `HANDOFF.json` + `STATE.md`. `/devflow resume` restores everything — zero-loss across sessions.
+`/devteam pause` captures uncommitted files, plan progress, and context notes into `HANDOFF.json` + `STATE.md`. `/devteam resume` restores everything — zero-loss across sessions.
 
-### Phase Migration
+### Hooks
 
-Projects using older phase values (init, discuss, exec, deploy, verify, observe) are automatically migrated to the new pipeline phases on first access.
+| Hook | Event | Purpose |
+|------|-------|---------|
+| Context Monitor | PostToolUse | Warns at 35% (warning) and 25% (critical) context remaining |
+| Persistent Mode | Stop | Prevents session exit during active pipeline execution |
+| Statusline | Always | Shows `Model | ctx [====    ] 42% | project | feature | [phase]` |
 
 ## Prerequisites
 
@@ -261,7 +292,11 @@ git clone https://github.com/wz1qqx/devflow-plugin.git ~/devflow-plugin
 bash ~/devflow-plugin/bin/setup.sh
 ```
 
-After cloning, run `/devflow-setup` in Claude Code to verify the installation.
+Regenerate commands after modifying `_registry.yaml`:
+
+```bash
+node bin/generate-commands.cjs
+```
 
 ## License
 
