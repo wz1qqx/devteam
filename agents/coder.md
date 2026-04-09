@@ -75,10 +75,9 @@ For each wave, for each task:
 5. Error handling for new code paths
 
 **COMMIT:**
-1. `cd <worktree_path>`
-2. `git add <specific_files>` — only files from this task
-3. `git commit -m "feat(<feature>): <task_title>"`
-4. If commit fails (pre-commit hook), fix and retry
+1. `git -C <worktree_path> add <specific_files>` — only files from this task
+2. `git -C <worktree_path> commit -m "feat(<feature>): <task_title>"`
+3. If commit fails (pre-commit hook), fix and retry
 </step>
 
 <step name="REPORT">

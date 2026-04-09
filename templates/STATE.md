@@ -9,7 +9,7 @@ last_activity: ""
 
 ## Position
 Currently working on: Project initialized, no active feature.
-Next step: Start a feature with `/devflow code <feature> --spec`
+Next step: Start a feature with `/devteam team <feature>`
 
 ## Decisions
 | ID | Decision | Rationale | Date | Feature |

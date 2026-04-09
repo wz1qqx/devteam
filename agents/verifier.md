@@ -19,6 +19,9 @@ On FAIL, your report must include enough structured data for the vLLM-Opter to d
 DEVFLOW_BIN=$(ls ~/.claude/plugins/cache/devteam/devteam/*/lib/devteam.cjs 2>/dev/null | head -1)
 INIT=$(node "$DEVFLOW_BIN" init team-verify)
 SSH=$(echo "$INIT" | jq -r '.cluster.ssh')
+SSH_HOST=$(echo "$SSH" | grep -oP '\S+@\S+' | tail -1)
+NAMESPACE=$(echo "$INIT" | jq -r '.cluster.namespace')
+DGD_NAME=$(echo "$INIT" | jq -r '.deploy.dgd_name // .deploy.app_label // "vllm"')
 SVC_URL=$(echo "$INIT" | jq -r '.deploy.service_url // empty')
 MODEL_NAME=$(echo "$INIT" | jq -r '.deploy.model_name // empty')
 BENCH_OUTPUT_DIR=$(echo "$INIT" | jq -r '.benchmark.output_dir // "bench-results"')
@@ -76,7 +79,7 @@ $SSH "vllm bench serve \
 
 Key metrics: request_throughput, output_throughput, median_ttft_ms, median_tpot_ms, p99_ttft_ms, p99_tpot_ms
 
-Transfer results locally: `scp $SSH:/tmp/bench-results/*.json $BENCH_OUTPUT_DIR/`
+Transfer results locally: `scp $SSH_HOST:/tmp/bench-results/*.json $BENCH_OUTPUT_DIR/`
 </step>
 
 <step name="COMPARE">

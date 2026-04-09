@@ -212,8 +212,8 @@ skills:
 ## Init 流程
 
 ```
-/devflow:init workspace     → 一次性：repos + 基础设施 + baselines
-/devflow:init feature <name> → 按需：选 repo 子集 + 创建 dev_worktree + 设 phase
+/devteam:init workspace     → 一次性：repos + 基础设施 + baselines
+/devteam:init feature <name> → 按需：选 repo 子集 + 创建 dev_worktree + 设 phase
 ```
 
 ## Template Variables

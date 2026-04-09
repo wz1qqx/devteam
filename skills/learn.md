@@ -9,8 +9,8 @@ Load workspace configuration, resolve wiki directory, detect source type.
 
 ```bash
 TOPIC="$1"
-# Auto-discover devflow CLI (marketplace or local install)
-DEVFLOW_BIN=$(ls ~/.claude/plugins/cache/devflow/devflow/*/skills/my-dev/bin/my-dev-tools.cjs 2>/dev/null | head -1)
+# Auto-discover devteam CLI (marketplace or local install)
+DEVFLOW_BIN=$(ls ~/.claude/plugins/cache/devteam/devteam/*/lib/devteam.cjs 2>/dev/null | head -1)
 
 INIT=$(node "$DEVFLOW_BIN" init learn "$TOPIC")
 WORKSPACE=$(echo "$INIT" | jq -r '.workspace')

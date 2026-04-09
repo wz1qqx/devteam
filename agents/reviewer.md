@@ -17,12 +17,20 @@ PASS, PASS_WITH_WARNINGS, or FAIL. CRITICAL findings = automatic FAIL.
 DEVFLOW_BIN=$(ls ~/.claude/plugins/cache/devteam/devteam/*/lib/devteam.cjs 2>/dev/null | head -1)
 INIT=$(node "$DEVFLOW_BIN" init team-review)
 FEATURE=$(echo "$INIT" | jq -r '.feature.name')
+WORKSPACE=$(echo "$INIT" | jq -r '.workspace')
+REPOS=$(echo "$INIT" | jq -r '.repos | to_entries[] | .key')
+```
+
+For each repo, extract worktree and base_ref:
+```bash
+DEV_WORKTREE=$(echo "$INIT" | jq -r ".repos[\"$REPO\"].dev_worktree")
+BASE_REF=$(echo "$INIT" | jq -r ".repos[\"$REPO\"].base_ref")
 ```
 
 Load:
 1. `.dev/features/$FEATURE/spec.md` — requirements
 2. `.dev/features/$FEATURE/plan.md` — intended changes
-3. Diffs: `git -C <dev_worktree> diff <base_ref>` for each repo
+3. Diffs: `git -C $DEV_WORKTREE diff $BASE_REF` for each repo
 4. `CLAUDE.md` — coding conventions
 5. Wiki pages — domain context
 </context>

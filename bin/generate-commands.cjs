@@ -6,13 +6,11 @@
  *
  * Usage: node bin/generate-commands.cjs [--dry-run]
  *
- * Reads commands/devflow/_registry.yaml and generates one .md file per command.
+ * Reads commands/devteam/_registry.yaml and generates one .md file per command.
  * Skips commands listed in _skip (these are hand-maintained).
  *
  * Registry entry types:
- *   skill:    → skills/my-dev/<file>       (flat skill file)
- *   stage:    → skills/my-dev/stages/<file> (legacy, will be removed)
- *   workflow: → skills/my-dev/workflows/<file> (legacy, will be removed)
+ *   skill:    → skills/<file>       (flat skill file)
  */
 
 const fs = require('fs');

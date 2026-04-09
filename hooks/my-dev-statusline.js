@@ -118,6 +118,6 @@ function run(data) {
     if (phase) parts.push(`[${phase}]`);
   }
 
-  process.stdout.write(parts.length > 0 ? parts.join(' | ') : 'devflow');
+  process.stdout.write(parts.length > 0 ? parts.join(' | ') : 'devteam');
   process.exit(0);
 }

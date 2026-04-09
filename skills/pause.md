@@ -8,8 +8,8 @@
 Load current project state and configuration.
 
 ```bash
-# Auto-discover devflow CLI (marketplace or local install)
-DEVFLOW_BIN=$(ls ~/.claude/plugins/cache/devflow/devflow/*/skills/my-dev/bin/my-dev-tools.cjs 2>/dev/null | head -1)
+# Auto-discover devteam CLI (marketplace or local install)
+DEVFLOW_BIN=$(ls ~/.claude/plugins/cache/devteam/devteam/*/lib/devteam.cjs 2>/dev/null | head -1)
 
 INIT=$(node "$DEVFLOW_BIN" init pause)
 WORKSPACE=$(echo "$INIT" | jq -r '.workspace')
@@ -164,7 +164,7 @@ Session saved.
   Next action: <next_action from HANDOFF>
   HANDOFF: .dev/features/$FEATURE/HANDOFF.json
 
-Resume with: /devflow resume
+Resume with: /devteam resume
 ```
 </step>
 </process>

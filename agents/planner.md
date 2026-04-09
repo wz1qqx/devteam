@@ -21,19 +21,27 @@ DEVFLOW_BIN=$(ls ~/.claude/plugins/cache/devteam/devteam/*/lib/devteam.cjs 2>/de
 INIT=$(node "$DEVFLOW_BIN" init team-plan)
 WORKSPACE=$(echo "$INIT" | jq -r '.workspace')
 FEATURE=$(echo "$INIT" | jq -r '.feature.name')
+REPOS=$(echo "$INIT" | jq -r '.repos | to_entries[] | .key')
+```
+
+For each repo, extract paths:
+```bash
+DEV_WORKTREE=$(echo "$INIT" | jq -r ".repos[\"$REPO\"].dev_worktree")
+BASE_REF=$(echo "$INIT" | jq -r ".repos[\"$REPO\"].base_ref")
+BASE_WORKTREE=$(echo "$INIT" | jq -r ".repos[\"$REPO\"].base_worktree // empty")
 ```
 
 Load:
 1. `.dev/features/$FEATURE/spec.md` — feature requirements
 2. `.dev.yaml` — project config, invariants, repos
-3. Dev worktree files — current state of target code
+3. Dev worktree files — current state of target code (read via `$DEV_WORKTREE`)
 4. `CLAUDE.md` — coding conventions (if exists)
 5. Wiki pages — domain context
 6. `project.invariants` — constraints to encode in plan
 </context>
 
 <constraints>
-- source_restriction: dev_worktree_only — all task file paths MUST be within registered dev_worktrees
+- source_restriction: all task file paths in the plan MUST target registered dev_worktrees (base_worktree is read-only reference)
 - Every task MUST specify target repo and worktree path explicitly
 - Every task MUST be independently committable (atomic commits)
 - No circular dependencies between tasks

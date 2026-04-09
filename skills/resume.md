@@ -8,8 +8,8 @@
 Load project configuration and locate handoff artifacts.
 
 ```bash
-# Auto-discover devflow CLI (marketplace or local install)
-DEVFLOW_BIN=$(ls ~/.claude/plugins/cache/devflow/devflow/*/skills/my-dev/bin/my-dev-tools.cjs 2>/dev/null | head -1)
+# Auto-discover devteam CLI (marketplace or local install)
+DEVFLOW_BIN=$(ls ~/.claude/plugins/cache/devteam/devteam/*/lib/devteam.cjs 2>/dev/null | head -1)
 
 INIT=$(node "$DEVFLOW_BIN" init resume)
 WORKSPACE=$(echo "$INIT" | jq -r '.workspace')
@@ -18,7 +18,7 @@ PHASE=$(echo "$INIT" | jq -r '.feature.phase')
 CURRENT_TAG=$(echo "$INIT" | jq -r '.feature.current_tag')
 ```
 
-Gate: `.dev.yaml` must exist. If not: "No project found. Run `/devflow init` first."
+Gate: `.dev.yaml` must exist. If not: "No project found. Run `/devteam init` first."
 </step>
 
 <step name="LOAD_HANDOFF">
@@ -154,16 +154,16 @@ Suggested next step: <next_action from HANDOFF>
 
 | Phase | Suggestion |
 |---|---|
-| `init` | "Project initialized. Start with: `/devflow code`" |
-| `dev` | "Continue development. Build when ready: `/devflow build`" |
-| `build` | "Build complete ($CURRENT_TAG). Deploy: `/devflow deploy`" |
-| `deploy` | "Deployed. Verify: `/devflow verify --smoke`" |
-| `verify` | "Verified. Observe: `/devflow observe` or start next feature" |
+| `init` | "Project initialized. Start with: `/devteam team`" |
+| `dev` | "Continue development. Build when ready: `/devteam team`" |
+| `build` | "Build complete ($CURRENT_TAG). Deploy: `/devteam team`" |
+| `deploy` | "Deployed. Verify: `/devteam team`" |
+| `verify` | "Verified. Start next feature or observe." |
 | `debug` | "Debug session active. Resume investigation." |
 
 **Check for in-progress work**:
-- Plan with pending tasks: "Resume execution: `/devflow code $FEATURE --exec`"
-- Review with FAIL verdict: "Fix review issues: `/devflow code $FEATURE --exec`"
+- Plan with pending tasks: "Resume execution: `/devteam team $FEATURE`"
+- Review with FAIL verdict: "Fix review issues: `/devteam team $FEATURE`"
 - Uncommitted files: "Warning: N uncommitted files. Commit or stash before proceeding."
 
 **Check active blockers**: if unresolved blockers exist, warn:

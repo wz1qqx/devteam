@@ -7,32 +7,32 @@ description: "Automated multi-agent pipeline orchestration for full development 
 
 ## Skill Discovery
 
-When the user invokes `/devflow <action> [args]`, route to the matching command:
+When the user invokes `/devteam <action> [args]`, route to the matching command:
 
 | Action | Command | Description |
 |--------|---------|-------------|
-| `team <feature>` | `/devflow team` | **Primary**: Automated multi-agent pipeline — full lifecycle |
-| `pause` | `/devflow pause` | Save session state for later resume |
-| `resume` | `/devflow resume` | Restore session state |
-| `status` | `/devflow status` | Project overview dashboard |
-| `diff` | `/devflow diff` | Show worktree changes |
-| `learn <topic>` | `/devflow learn` | Research and create wiki pages |
-| `knowledge <action>` | `/devflow knowledge` | Wiki operations |
-| `init <workspace\|feature>` | `/devflow init` | Initialize workspace or add feature |
-| `cluster <add\|use\|list>` | `/devflow cluster` | Manage K8s cluster profiles |
-| `clean` | `/devflow clean` | Cleanup orphan worktrees/images/pods |
+| `team <feature>` | `/devteam team` | **Primary**: Automated multi-agent pipeline — full lifecycle |
+| `pause` | `/devteam pause` | Save session state for later resume |
+| `resume` | `/devteam resume` | Restore session state |
+| `status` | `/devteam status` | Project overview dashboard |
+| `diff` | `/devteam diff` | Show worktree changes |
+| `learn <topic>` | `/devteam learn` | Research and create wiki pages |
+| `knowledge <action>` | `/devteam knowledge` | Wiki operations |
+| `init <workspace\|feature>` | `/devteam init` | Initialize workspace or add feature |
+| `cluster <add\|use\|list>` | `/devteam cluster` | Manage K8s cluster profiles |
+| `clean` | `/devteam clean` | Cleanup orphan worktrees/images/pods |
 
 ## Dispatch Rule
 
 1. Parse first token of `$ARGUMENTS` as `<action>`
-2. Route to corresponding `/devflow:<action>` command
+2. Route to corresponding `/devteam:<action>` command
 3. Pass remaining args forward
 
-If no action specified, suggest `/devflow team <feature>` as the primary workflow.
+If no action specified, suggest `/devteam team <feature>` as the primary workflow.
 
 ## Pipeline Roles
 
-The `/devflow team` command orchestrates 8 specialized agents:
+The `/devteam team` command orchestrates 8 specialized agents:
 
 | Role | Agent | Responsibility |
 |------|-------|---------------|
