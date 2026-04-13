@@ -27,7 +27,19 @@ INIT=$(node "$DEVFLOW_BIN" init team-vllm-opt)
 If `$INIT` contains `"feature": null` and `"available_features"`, prompt the user to select a feature with AskUserQuestion, then re-run: `INIT=$(node "$DEVFLOW_BIN" init team-vllm-opt --feature $SELECTED)`
 
 **Step 2**: Execute:
-1. Load context via CLI init
-2. Spawn the vllm-opter agent: Agent(subagent_type: "devteam:vllm-opter", prompt: "Analyze performance for feature '$FEATURE'. Workspace: $WORKSPACE. [regression report if provided]")
-3. Display the optimization guidance report returned by the agent
+1. Extract from `$INIT`:
+   ```bash
+   FEATURE=$(echo "$INIT" | jq -r '.feature.name')
+   WORKSPACE=$(echo "$INIT" | jq -r '.workspace')
+   ```
+2. Parse `--regression-report <json>` from `$ARGUMENTS` if present.
+3. Spawn the vllm-opter agent:
+   ```
+   Agent(
+     subagent_type: "devteam:vllm-opter",
+     prompt: "Analyze performance for feature '$FEATURE'. Workspace: $WORKSPACE.
+       [If regression report was passed: Regression report from verifier: <json>]"
+   )
+   ```
+4. Display the optimization guidance report returned by the agent.
 </process>
