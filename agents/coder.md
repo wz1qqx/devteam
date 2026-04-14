@@ -82,7 +82,7 @@ For each wave, for each task:
 
 **COMMIT:**
 ```bash
-DEV_WORKTREE=<task's worktree from plan.md>
+DEV_WORKTREE=$(grep -m1 '^\*\*Worktree\*\*:' plan.md | sed 's/.*: *//')
 git -C $DEV_WORKTREE add <specific_files>   # only files from this task
 git -C $DEV_WORKTREE commit -m "feat($FEATURE): <task_title>"
 COMMIT_HASH=$(git -C $DEV_WORKTREE rev-parse --short HEAD)

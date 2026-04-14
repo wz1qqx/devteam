@@ -28,7 +28,7 @@ commands:
 
   resume:
     description: Restore session state and show current status
-    objective: Restore worktree state, active tasks, and pending items from workspace.yaml and state files.
+    objective: Restore session state from HANDOFF.json, STATE.md, and feature context.md.
     skill: resume.md
     allowed-tools: [Read, Bash, Glob, Grep]
 

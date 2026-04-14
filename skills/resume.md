@@ -126,13 +126,13 @@ Load which pages? (e.g. "1 2", "all", or "none" to skip)
 Wait for user input. Load only selected pages.
 If no matching pages or wiki not configured: skip silently.
 
-**Check uncommitted files** (from HANDOFF or fresh scan):
+**Check uncommitted files** across all dev worktrees (from `$INIT.repos`):
 ```bash
-UNCOMMITTED=$(git -C "$WORKSPACE" status --porcelain)
-if [ -n "$UNCOMMITTED" ]; then
-  echo "Uncommitted files detected:"
-  echo "$UNCOMMITTED"
-fi
+echo "$INIT" | jq -r '.repos | to_entries[] | .value.dev_worktree // empty' | \
+  while read DEV_WT; do
+    STATUS=$(git -C "$DEV_WT" status --porcelain 2>/dev/null)
+    [ -n "$STATUS" ] && echo "Uncommitted in $DEV_WT:" && echo "$STATUS"
+  done
 ```
 </step>
 

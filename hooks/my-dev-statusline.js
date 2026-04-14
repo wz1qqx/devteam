@@ -10,10 +10,10 @@
 const fs = require('fs');
 const path = require('path');
 
-function findDevYaml(startDir) {
+function findWorkspaceYaml(startDir) {
   let dir = startDir;
   for (let i = 0; i < 20; i++) {
-    const candidate = path.join(dir, '.dev.yaml');
+    const candidate = path.join(dir, 'workspace.yaml');
     if (fs.existsSync(candidate)) return { file: candidate, root: dir };
     const parent = path.dirname(dir);
     if (parent === dir) break;
@@ -75,48 +75,47 @@ function run(data) {
     parts.push(`ctx ${bar} ${Math.round(usedPct)}%`);
   }
 
-  // Project / feature / phase from .dev.yaml + STATE.md
+  // Project / feature / phase from workspace.yaml + feature config.yaml
   const cwd = data?.cwd || process.cwd();
-  const found = findDevYaml(cwd);
+  const found = findWorkspaceYaml(cwd);
 
   if (found) {
     const { file, root } = found;
-    let projectName = 'devflow';
-    try {
-      const yaml = fs.readFileSync(file, 'utf8');
-      projectName = parseYamlValue(yaml, 'project') || path.basename(root);
-    } catch (_) {
-      projectName = path.basename(root);
-    }
-    parts.push(projectName);
-
-    // Read active feature from .dev.yaml defaults.active_feature
+    let projectName = path.basename(root);
     let feature = '';
     let phase = '';
+
     try {
-      const yaml = fs.readFileSync(file, 'utf8');
-      feature = parseYamlValue(yaml, 'active_feature') || '';
-      if (feature) {
-        // Extract phase from the feature block in .dev.yaml
-        const featureBlockRe = new RegExp(`^\\s+${feature}:[\\s\\S]*?^\\s+phase:\\s*(.+)$`, 'm');
-        const phaseMatch = yaml.match(featureBlockRe);
-        phase = phaseMatch ? phaseMatch[1].trim() : '';
-      }
+      const wsYaml = fs.readFileSync(file, 'utf8');
+      // project name from devlog.group
+      projectName = parseYamlValue(wsYaml, 'group') || projectName;
+      // active feature from defaults.active_feature
+      feature = parseYamlValue(wsYaml, 'active_feature') || '';
     } catch (_) { /* ignore */ }
 
-    // Fallback: try STATE.md
-    if (!feature) {
-      const statePath = path.join(root, '.dev', 'STATE.md');
+    if (feature) {
+      // phase from .dev/features/<name>/config.yaml
       try {
-        if (fs.existsSync(statePath)) {
-          const stateContent = fs.readFileSync(statePath, 'utf8');
-          const fm = parseStateFrontmatter(stateContent);
-          feature = fm.current_feature || '';
-          phase = phase || fm.feature_stage || fm.phase || '';
+        const configPath = path.join(root, '.dev', 'features', feature, 'config.yaml');
+        if (fs.existsSync(configPath)) {
+          const configYaml = fs.readFileSync(configPath, 'utf8');
+          phase = parseYamlValue(configYaml, 'phase') || '';
         }
       } catch (_) { /* ignore */ }
+
+      // Fallback: try STATE.md for phase
+      if (!phase) {
+        const statePath = path.join(root, '.dev', 'STATE.md');
+        try {
+          if (fs.existsSync(statePath)) {
+            const fm = parseStateFrontmatter(fs.readFileSync(statePath, 'utf8'));
+            phase = fm.feature_stage || fm.phase || '';
+          }
+        } catch (_) { /* ignore */ }
+      }
     }
 
+    parts.push(projectName);
     if (feature) parts.push(feature);
     if (phase) parts.push(`[${phase}]`);
   }

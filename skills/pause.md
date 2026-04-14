@@ -30,10 +30,10 @@ Collect current session state from all sources.
 
 2. **Detect active feature**: from STATE.md frontmatter or recent `.dev/features/` activity
 
-3. **Scan uncommitted files** across all dev worktrees:
+3. **Scan uncommitted files** across all dev worktrees (from `$INIT.repos`):
    ```bash
-   git -C "$WORKSPACE" status --porcelain
-   # For each additional repo worktree
+   echo "$INIT" | jq -r '.repos | to_entries[] | .value.dev_worktree // empty' | \
+     while read DEV_WT; do git -C "$DEV_WT" status --porcelain; done
    ```
 
 4. **Parse plan progress** (if feature has a plan):

@@ -7,7 +7,6 @@
 workspace.yaml                          ← workspace 级配置（clusters/repos/defaults）
 .dev/features/<name>/config.yaml        ← 每个 feature 的独立配置（scope/deploy/benchmark）
 ```
-迁移命令：`node devteam.cjs migrate`（从旧版 .dev.yaml 一键拆分）
 
 ```yaml
 schema_version: 2
@@ -65,9 +64,6 @@ defaults:
   active_cluster: <string>          # Which cluster to use by default
   features:                         # Explicit feature name list (managed by CLI — do not edit manually)
     - <name>                        # Each entry has a corresponding .dev/features/<name>/config.yaml
-  model_profile: balanced           # Agent model tier: quality | balanced | budget
-  agent_models:                     # Optional per-agent model overrides
-    <agent-name>: <model>           # e.g., my-custom-auditor: opus
   tuning:                           # Optional tunable parameters (all have defaults)
     regression_threshold: 20        # Benchmark regression alert threshold (%)
     max_optimization_loops: 3       # Max vLLM-Opter → re-plan → re-verify iterations
@@ -82,23 +78,23 @@ defaults:
 # 每个 feature 独立文件，flat 结构（无 features: 嵌套）
 # ═══════════════════════════════════════
 
-# （以下字段直接在 config.yaml 顶层）
-    description: <string>
-    created: <YYYY-MM-DD>
+# （以下字段直接在 config.yaml 顶层，无嵌套）
+description: <string>
+created: <YYYY-MM-DD>
 
-    scope:                          # 涉及哪些 repo
-      <repo-name>:
-        base_ref: <tag|commit>      # Baseline version from repos.<name>.baselines
-        base_worktree: <dir>        # Optional: detached HEAD worktree (read-only)
-        dev_worktree: <dir|null>    # Active dev worktree (null = not yet created)
-        shared_with: <feature>      # Optional: if worktree is shared with another feature
-        build_type: <string>        # Optional: e.g. "wheel"
+scope:                          # 涉及哪些 repo
+  <repo-name>:
+    base_ref: <tag|commit>      # Baseline version from repos.<name>.baselines
+                                # base_worktree is computed by CLI from repos.<name>.baselines[base_ref], do NOT set here
+    dev_worktree: <dir|null>    # Active dev worktree (null = not yet created)
+    shared_with: <feature>      # Optional: if worktree is shared with another feature
+    build_type: <string>        # Optional: e.g. "wheel"
 
-    # 生命周期状态
-    phase: spec | plan | code | test | review | ship | debug | dev | completed
-    current_tag: <string>           # Latest built image tag
-    base_image: <string|null>       # Base Docker image
-    cluster: <string>               # Override cluster for this feature
+# 生命周期状态
+phase: spec | plan | code | test | review | ship | debug | dev | completed
+current_tag: <string>           # Latest built image tag
+base_image: <string|null>       # Base Docker image
+cluster: <string>               # Override cluster for this feature
 
     # Feature-specific 配置 (all optional)
     invariants:
@@ -119,6 +115,7 @@ defaults:
           rule: <string>
 
     build:
+      image_name: <string>          # Docker image name (defaults to feature name if omitted)
       commands:
         default: <string|path>
         <variant>: <string|path>
@@ -228,10 +225,6 @@ observability:
     error_rate_max_pct: <float>
     check_interval_min: <int>
 
-skills:
-  learn: <string|null>
-  debug:
-    <topic>: <skill>
 ```
 
 ## Init 流程
@@ -240,8 +233,6 @@ skills:
 /devteam:init workspace      → 新建 workspace.yaml（workspace 级配置）
 /devteam:init feature <name> → 新建 .dev/features/<name>/config.yaml + 注册到 defaults.features
 
-# 从旧版 .dev.yaml 迁移（一次性）：
-node devteam.cjs migrate     → 拆分为 workspace.yaml + 各 feature config.yaml，原文件备份为 .dev.yaml.bak
 ```
 
 ## Template Variables
