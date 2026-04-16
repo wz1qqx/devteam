@@ -162,6 +162,7 @@ After every `Agent(...)` + wait cycle:
 2. Resolve it through the high-level orchestration helper:
    ```bash
    printf '%s' "$AGENT_MESSAGE" | node "$DEVTEAM_BIN" orchestration resolve-stage \
+     --feature "$FEATURE" \
      --stage "<stage-name>" \
      [--report-path "$WORKSPACE/.dev/features/$FEATURE/<artifact>.md"] \
      [--summary "<checkpoint summary>"] \
@@ -229,6 +230,7 @@ Agent(
 4. Wait for completion, then resolve the stage:
    ```bash
    printf '%s' "$AGENT_MESSAGE" | node "$DEVTEAM_BIN" orchestration resolve-stage \
+     --feature "$FEATURE" \
      --stage spec \
      --summary "Spec complete for $FEATURE"
    ```
@@ -255,6 +257,7 @@ Agent(
 Wait for completion, then resolve the stage:
 ```bash
 printf '%s' "$AGENT_MESSAGE" | node "$DEVTEAM_BIN" orchestration resolve-stage \
+  --feature "$FEATURE" \
   --stage plan \
   --summary "Plan complete for $FEATURE"
 ```
@@ -287,6 +290,7 @@ Agent(
 Wait for completion, then resolve the stage:
 ```bash
 printf '%s' "$AGENT_MESSAGE" | node "$DEVTEAM_BIN" orchestration resolve-stage \
+  --feature "$FEATURE" \
   --stage code \
   --summary "Code complete for $FEATURE"
 ```
@@ -327,6 +331,7 @@ Agent(
 Resolve the stage:
 ```bash
 printf '%s' "$AGENT_MESSAGE" | node "$DEVTEAM_BIN" orchestration resolve-stage \
+  --feature "$FEATURE" \
   --stage review \
   --report-path "$WORKSPACE/.dev/features/$FEATURE/review.md" \
   --review-cycle "$review_cycle" \
@@ -363,6 +368,7 @@ Agent(
 Wait for completion, then resolve the stage:
 ```bash
 printf '%s' "$AGENT_MESSAGE" | node "$DEVTEAM_BIN" orchestration resolve-stage \
+  --feature "$FEATURE" \
   --stage build \
   --summary "Build complete for $FEATURE"
 ```
@@ -404,6 +410,7 @@ Agent(
 Wait for completion, then resolve the stage:
 ```bash
 printf '%s' "$AGENT_MESSAGE" | node "$DEVTEAM_BIN" orchestration resolve-stage \
+  --feature "$FEATURE" \
   --stage ship \
   --summary "Ship complete for $FEATURE"
 ```
@@ -434,6 +441,7 @@ Agent(
 Resolve the stage:
 ```bash
 printf '%s' "$AGENT_MESSAGE" | node "$DEVTEAM_BIN" orchestration resolve-stage \
+  --feature "$FEATURE" \
   --stage verify \
   --report-path "$WORKSPACE/.dev/features/$FEATURE/verify.md"
 ```
@@ -461,7 +469,7 @@ While verifier FAIL and loop_count < MAX_LOOPS:
 
 1. Checkpoint:
    ```bash
-   node "$DEVTEAM_BIN" pipeline loop --count "$loop_count"
+   node "$DEVTEAM_BIN" pipeline loop --feature "$FEATURE" --count "$loop_count"
    ```
 
 2. Spawn vLLM-Opter:
@@ -481,6 +489,7 @@ Agent(
 3. Wait for optimization guidance, then resolve the stage:
    ```bash
    printf '%s' "$AGENT_MESSAGE" | node "$DEVTEAM_BIN" orchestration resolve-stage \
+     --feature "$FEATURE" \
      --stage vllm-opt \
      --report-path "$WORKSPACE/.dev/features/$FEATURE/optimization-guidance.md"
    ```
@@ -511,7 +520,7 @@ Pipeline complete.
 
 1. Update phase:
 ```bash
-node "$DEVTEAM_BIN" pipeline complete --stages "$ALL_COMPLETED_CSV" --summary "Pipeline complete for $FEATURE"
+node "$DEVTEAM_BIN" pipeline complete --feature "$FEATURE" --stages "$ALL_COMPLETED_CSV" --summary "Pipeline complete for $FEATURE"
 ```
 
 2. `TeamDelete`

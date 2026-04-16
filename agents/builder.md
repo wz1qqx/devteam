@@ -105,6 +105,7 @@ Record the build using the CLI (updates `current_tag` + appends to `build_histor
 
 ```bash
 node "$DEVTEAM_BIN" build record \
+  --feature "$FEATURE" \
   --tag "$CONFIRMED_TAG" \
   --changes "<one-line summary of what changed in this build>" \
   --parent-image "$PARENT_IMAGE" \

@@ -131,9 +131,24 @@ function testInvalidTaskStatusFailsLoudly() {
   assert.match(result.stderr, /Invalid task status 'done'/i);
 }
 
+function testSummaryDoesNotCountSkippedAsRemaining() {
+  const root = createWorkspace();
+  runCli(root, ['tasks', 'sync-from-plan', '--feature', 'feat-a']);
+  runCli(root, ['tasks', 'update', '--feature', 'feat-a', '--id', '1', '--status', 'completed']);
+  runCli(root, ['tasks', 'update', '--feature', 'feat-a', '--id', '2', '--status', 'skipped']);
+
+  const summary = runCli(root, ['tasks', 'summary', '--feature', 'feat-a']);
+  assert.strictEqual(summary.summary.total_tasks, 2);
+  assert.strictEqual(summary.summary.completed_tasks, 1);
+  assert.strictEqual(summary.summary.by_status.skipped, 1);
+  assert.strictEqual(summary.summary.remaining_tasks, 0);
+  assert.strictEqual(summary.summary.next_task, null);
+}
+
 function main() {
   testSyncFromPlanAndUpdateLifecycle();
   testInvalidTaskStatusFailsLoudly();
+  testSummaryDoesNotCountSkippedAsRemaining();
   console.log('week6-task-state: ok');
 }
 

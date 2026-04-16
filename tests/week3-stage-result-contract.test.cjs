@@ -56,6 +56,7 @@ function testAgentsUseStructuredStageResultAndDoNotOwnCheckpoints() {
   }
 
   assert.match(read('agents/builder.md'), /build record/);
+  assert.match(read('agents/builder.md'), /build record[\s\S]*--feature "\$FEATURE"/);
 }
 
 function testOrchestratorConsumesStructuredStageResults() {
@@ -64,10 +65,11 @@ function testOrchestratorConsumesStructuredStageResults() {
   assert.match(orchestrator, /stage-result-contract\.md/);
   assert.match(orchestrator, /STAGE_RESULT_PROTOCOL/);
   assert.match(orchestrator, /orchestration resolve-stage/);
+  assert.match(orchestrator, /orchestration resolve-stage[\s\S]*--feature "\$FEATURE"/);
   assert.match(orchestrator, /pipeline init/);
   assert.match(orchestrator, /pipeline reset/);
-  assert.match(orchestrator, /pipeline loop/);
-  assert.match(orchestrator, /pipeline complete/);
+  assert.match(orchestrator, /pipeline loop --feature "\$FEATURE"/);
+  assert.match(orchestrator, /pipeline complete --feature "\$FEATURE"/);
   assert.match(orchestrator, /Agents do NOT update `feature_stage`, `completed_stages`, or workflow checkpoints/);
   assert.doesNotMatch(orchestrator, /stage-result parse/);
   assert.doesNotMatch(orchestrator, /stage-result decide/);

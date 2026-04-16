@@ -176,7 +176,7 @@ Every stage agent now returns a human-readable report plus a final `STAGE_RESULT
 Helper entrypoint:
 
 ```bash
-printf '%s' "$AGENT_MESSAGE" | node lib/devteam.cjs orchestration resolve-stage --stage review --report-path .dev/features/my-feature/review.md --review-cycle 0 --max-review-cycles 2
+printf '%s' "$AGENT_MESSAGE" | node lib/devteam.cjs orchestration resolve-stage --feature my-feature --stage review --report-path .dev/features/my-feature/review.md --review-cycle 0 --max-review-cycles 2
 printf '%s' "$AGENT_MESSAGE" | node lib/devteam.cjs stage-result parse --stage review
 printf '%s' "$AGENT_MESSAGE" | node lib/devteam.cjs stage-result parse --stage review --report-path .dev/features/my-feature/review.md
 printf '%s' "$AGENT_MESSAGE" | node lib/devteam.cjs stage-result decide --stage review --review-cycle 0 --max-review-cycles 2
