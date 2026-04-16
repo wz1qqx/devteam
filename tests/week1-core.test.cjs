@@ -5,6 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { DevteamError, DevflowError, error: throwCoreError } = require('../lib/core.cjs');
 
 const CLI = path.resolve(__dirname, '..', 'lib', 'devteam.cjs');
 
@@ -193,6 +194,14 @@ function testStateUpdatePhaseAcceptsVerifyWhenFeatureSpecified() {
   assert.match(featureConfig, /^phase: verify$/m);
 }
 
+function testCoreErrorRenameMaintainsBackwardCompatibility() {
+  assert.strictEqual(DevflowError, DevteamError);
+  assert.throws(
+    () => throwCoreError('boom'),
+    err => err instanceof DevteamError && err.name === 'DevteamError' && err.message === 'boom'
+  );
+}
+
 function main() {
   testInitClusterWithoutActiveFeature();
   testInitStatusWithoutActiveFeature();
@@ -201,6 +210,7 @@ function main() {
   testStateCommandsRequireFeatureSelectionForMultiFeatureWorkspace();
   testFeaturesSwitchSubcommandRemoved();
   testStateUpdatePhaseAcceptsVerifyWhenFeatureSpecified();
+  testCoreErrorRenameMaintainsBackwardCompatibility();
   console.log('week1-core: ok');
 }
 
