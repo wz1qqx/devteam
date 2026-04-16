@@ -153,6 +153,19 @@ User → /devteam team my-feature --stages code,review
   └── Resume: if interrupted, INIT detects completed_stages and offers to continue
 ```
 
+### Execution Boundaries
+
+Runtime guardrails are enforced by CLI boundaries (not prompt prose):
+
+- frozen run identity: `run init|get|reset` snapshots and reuses repo/worktree/SHA identity.
+- dirty worktree gate: `run init` marks `requires_dirty_decision` before pipeline start.
+- invalid identity gate: `pipeline init` blocks when RUN execution identity is invalid.
+- slot conflict gate: `pipeline init` blocks shared dev_worktree collisions unless `--allow-slot-conflict` (or shared slot exemption).
+- source restriction gate: coder uses `run check-path --feature <name> --path <file>` before source writes.
+- hook frozen scope: `hooks run` resolves repo scope from RUN snapshot when available.
+- build provenance gate: `build record` captures RUN-scoped `source_refs` (or `--run-path` override).
+- explicit feature routing: runtime commands require `--feature` when multi-feature ambiguity exists.
+
 ### Checkpoint Resume
 
 Every completed stage writes to STATE.md:

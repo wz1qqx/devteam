@@ -67,6 +67,9 @@ function testOrchestratorConsumesStructuredStageResults() {
   assert.match(orchestrator, /orchestration resolve-stage/);
   assert.match(orchestrator, /orchestration resolve-stage[\s\S]*--feature "\$FEATURE"/);
   assert.match(orchestrator, /pipeline init/);
+  assert.match(orchestrator, /requires_execution_identity_fix/);
+  assert.match(orchestrator, /slot conflict|allow-slot-conflict/);
+  assert.match(orchestrator, /run check-path|check-path/);
   assert.match(orchestrator, /pipeline reset/);
   assert.match(orchestrator, /pipeline loop --feature "\$FEATURE"/);
   assert.match(orchestrator, /pipeline complete --feature "\$FEATURE"/);

@@ -106,9 +106,15 @@ If `RUN_INIT.requires_dirty_decision == true`:
    ```
    Stop orchestration without starting pipeline stages.
 
+If `RUN_INIT.requires_execution_identity_fix == true`:
+1. Surface `RUN_INIT.invalid_execution_repos` (repo + reasons) to user.
+2. Hard stop orchestration.
+3. Do NOT AskUserQuestion for continue/cancel; this is an environment identity error and must be fixed before retry.
+
 Execution identity rule:
 - Every stage that touches code, review scope, build provenance, or deployment inputs must rely on
   `$RUN_PATH` identity rather than re-deriving repo/worktree state from ambient files.
+- Coder path writes are enforced via `run check-path` against RUN-frozen dev worktrees before edits/commits.
 
 Gates:
 - workspace.yaml must exist
@@ -126,6 +132,17 @@ Create the team and task list — only for selected stages.
 ```bash
 node "$DEVTEAM_BIN" pipeline init --feature "$FEATURE" --stages "$STAGES_CSV"
 ```
+
+If `pipeline init` fails with slot conflict:
+1. Surface the conflicting feature/worktree from the CLI error.
+2. AskUserQuestion with three options:
+   - retry once with `--allow-slot-conflict`
+   - wait for the conflicting pipeline to complete and retry
+   - cancel this orchestration run
+3. If user picks override, run:
+   ```bash
+   node "$DEVTEAM_BIN" pipeline init --feature "$FEATURE" --stages "$STAGES_CSV" --allow-slot-conflict
+   ```
 
 3. Create tasks dynamically — only for stages in STAGES:
 ```
@@ -195,6 +212,7 @@ After every `Agent(...)` + wait cycle:
    - `decision == optimization_loop` → feed `regressions` to vLLM-Opter
    - `decision == retry` → offer retry before aborting
    - `decision == needs_input` → AskUserQuestion before proceeding using `user_prompt` (fallback to `next_action`)
+   - For `stage == code`, remediation and retry paths must preserve coder's `run check-path` enforcement for all write targets.
 6. If the JSON block is missing or malformed, send one corrective message to the same agent:
    "Resend your final message with a valid STAGE_RESULT JSON block and no prose after it."
 7. If the agent still fails to comply, treat the stage as failed and AskUserQuestion for retry/abort guidance.
