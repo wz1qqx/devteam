@@ -30,7 +30,6 @@ function createWorkspace() {
       'schema_version: 2',
       `workspace: ${root}`,
       'defaults:',
-      '  active_feature: feat-a',
       '  active_cluster: dev',
       '  features:',
       '    - feat-a',
@@ -112,6 +111,7 @@ function testInitUsesFeatureContextInsteadOfLegacyStateTables() {
 
   const result = runCli(root, ['init', 'team-code']);
 
+  assert.strictEqual(result.state, null);
   assert.deepStrictEqual(result.decisions, [
     {
       id: 'D-01',

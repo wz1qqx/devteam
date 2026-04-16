@@ -1,6 +1,6 @@
 ---
 name: devteam:feature
-description: List features and select/delete — use at session start to pick active feature
+description: List features and select/delete — use at session start to pick a feature for this session
 argument-hint: "[list|delete] [name]"
 allowed-tools:
   - Read
@@ -11,7 +11,7 @@ allowed-tools:
   - AskUserQuestion
 ---
 <objective>
-Show all features with status, let user select one to bind as active, or delete a feature. When invoked without args, list features and prompt user to choose.
+Show all features with status, let user select one for the current session, or delete a feature. When invoked without args, list features and prompt user to choose.
 </objective>
 
 <context>
@@ -32,6 +32,6 @@ If `$INIT` contains `"feature": null` and `"available_features"`, prompt the use
 2. Display features as a table: name, description, phase, scope
 3. If action is `delete`: confirm with AskUserQuestion, then run `node "$DEVTEAM_BIN" features delete <name>`
 4. If action is `list` or no action: use AskUserQuestion to let user pick a feature
-5. Run `node "$DEVTEAM_BIN" features switch <selected>` to bind the selection
-6. Show confirmation: "Feature '<name>' is now active"
+5. Keep the selected feature in session context and pass `--feature <selected>` to subsequent devteam CLI/init calls in this session
+6. Show confirmation: "Feature '<name>' selected for this session"
 </process>

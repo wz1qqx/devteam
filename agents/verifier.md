@@ -19,6 +19,7 @@ On FAIL, your report must include enough structured data for the vLLM-Opter to d
 DEVTEAM_BIN=$(ls ~/.claude/plugins/cache/devteam/devteam/*/lib/devteam.cjs 2>/dev/null | head -1)
 INIT=$(node "$DEVTEAM_BIN" init team-verify)
 FEATURE=$(echo "$INIT" | jq -r '.feature.name')
+RUN_PATH=$(echo "$INIT" | jq -r '.run.path // empty')
 SSH=$(echo "$INIT" | jq -r '.cluster.ssh')
 SSH_HOST=$(echo "$SSH" | grep -oE '[^ ]+@[^ ]+' | tail -1)
 NAMESPACE=$(echo "$INIT" | jq -r '.cluster.namespace')
@@ -42,7 +43,6 @@ SMOKE_CMD=$(echo "$INIT" | jq -r '.verify.smoke_cmd // empty')
 SMOKE_COUNT=$(echo "$INIT" | jq -r '.verify.smoke_count // 5')
 WARMUP_COUNT=$(echo "$INIT" | jq -r '.verify.warmup_count // 3')
 POD_SELECTOR=$(echo "$INIT" | jq -r '.verify.pod_selector // "app=$DGD_NAME"')
-POST_VERIFY_HOOK=$(echo "$INIT" | jq -r '.hooks.post_verify // empty')
 ```
 </context>
 
@@ -51,6 +51,7 @@ POST_VERIFY_HOOK=$(echo "$INIT" | jq -r '.hooks.post_verify // empty')
 - Use median of medians for comparison — single runs are noise
 - Regression threshold from config (default 20%)
 - Smoke is pass/fail — no partial credit
+- Runtime identity (feature/workspace/run) must come from `$RUN_PATH`
 - The orchestrator owns checkpoint, verify report persistence, and optimization-loop control
 </constraints>
 
@@ -163,12 +164,11 @@ On FAIL, include structured regression data:
 </step>
 
 <step name="POST_VERIFY">
-Execute `hooks.post_verify` if configured (non-blocking — warn on failure, don't abort):
+Execute post-verify hooks through the unified runner:
 ```bash
-if [ -n "$POST_VERIFY_HOOK" ]; then
-  $SSH "$POST_VERIFY_HOOK" || echo "[WARN] post_verify hook failed"
-fi
+node "$DEVTEAM_BIN" hooks run --feature "$FEATURE" --phase post_verify
 ```
+`post_verify` is non-blocking by runner contract.
 </step>
 
 <step name="RETURN_RESULT">

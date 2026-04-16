@@ -1,7 +1,6 @@
 ---
 project: unknown
-phase: init
-current_feature: null
+phase: spec
 feature_stage: null
 plan_progress: "0/0"
 last_activity: ""
@@ -11,9 +10,5 @@ pipeline_loop_count: "0"
 ---
 
 ## Position
-Currently working on: Project initialized, no active feature.
-Next step: Start a feature with `/devteam team <feature>`
-
-## Metrics
-| Feature | Spec | Plan | Exec | Review | Duration |
-|---------|------|------|------|--------|----------|
+Currently working on: Feature initialized, no work started yet.
+Next step: Start or resume work for this feature with `/devteam team <feature>`

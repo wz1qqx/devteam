@@ -21,6 +21,8 @@ DEVTEAM_BIN=$(ls ~/.claude/plugins/cache/devteam/devteam/*/lib/devteam.cjs 2>/de
 INIT=$(node "$DEVTEAM_BIN" init team-plan)
 WORKSPACE=$(echo "$INIT" | jq -r '.workspace')
 FEATURE=$(echo "$INIT" | jq -r '.feature.name')
+RUN_PATH=$(echo "$INIT" | jq -r '.run.path // empty')
+TASKS_PATH=$(echo "$INIT" | jq -r '.task_state.path')
 REPOS=$(echo "$INIT" | jq -r '.repos | to_entries[] | .key')
 KNOWLEDGE_NOTES=$(echo "$INIT" | jq -c '.knowledge_notes // []')
 INVARIANTS=$(echo "$INIT" | jq -r '.invariants // {}')
@@ -52,6 +54,7 @@ Load:
 - Build mode detected from file types: .py only=fast, .rs/.c/.cpp=rust/full, mixed=full
 - Tasks MUST include `files_to_read` block
 - Tasks targeting >200 lines changed should be split
+- `tasks.json` is the machine source of truth for task execution state; `plan.md` is human-readable
 - The orchestrator owns checkpoint and pipeline-state writes — do not update workflow state yourself
 </constraints>
 
@@ -139,6 +142,25 @@ Tasks: N | Waves: M
 
 ## Verification: PASS
 ```
+
+Then produce authoritative task state:
+
+```bash
+node "$DEVTEAM_BIN" tasks sync-from-plan --feature "$FEATURE" --plan "$WORKSPACE/.dev/features/$FEATURE/plan.md"
+```
+
+If needed, edit `$TASKS_PATH` to enrich fields while preserving schema:
+- `id`
+- `title`
+- `repo`
+- `dev_worktree`
+- `files_to_modify`
+- `files_to_read`
+- `depends_on`
+- `wave`
+- `status`
+- `commit`
+- `notes`
 </step>
 
 <step name="SELF_VERIFY">
@@ -163,7 +185,8 @@ Return a short planning summary, then end with:
   "status": "completed",
   "verdict": "PASS",
   "artifacts": [
-    {"kind": "plan", "path": ".dev/features/$FEATURE/plan.md"}
+    {"kind": "plan", "path": ".dev/features/$FEATURE/plan.md"},
+    {"kind": "tasks", "path": ".dev/features/$FEATURE/tasks.json"}
   ],
   "next_action": "Coder can execute the plan in dependency order.",
   "retryable": false,

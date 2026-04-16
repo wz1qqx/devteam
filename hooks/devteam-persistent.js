@@ -17,15 +17,11 @@ const path = require('path');
 const os = require('os');
 
 const STATE_FILE = path.join(os.tmpdir(), `devteam-persistent-${process.ppid}.json`);
-const LEGACY_STATE_FILE = path.join(os.tmpdir(), `devflow-persistent-${process.ppid}.json`);
 
 function readState() {
   try {
-    const candidate = fs.existsSync(STATE_FILE)
-      ? STATE_FILE
-      : (fs.existsSync(LEGACY_STATE_FILE) ? LEGACY_STATE_FILE : null);
-    if (!candidate) return null;
-    return JSON.parse(fs.readFileSync(candidate, 'utf8'));
+    if (!fs.existsSync(STATE_FILE)) return null;
+    return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
   } catch (_) {
     return null;
   }

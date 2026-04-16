@@ -88,7 +88,6 @@ function testFeatureArtifactStateIncludesVerifyAndOptimizationReports() {
       'schema_version: 2',
       `workspace: ${root}`,
       'defaults:',
-      '  active_feature: feat-a',
       '  features:',
       '    - feat-a',
       'repos: {}',

@@ -12,7 +12,7 @@ allowed-tools:
   - AskUserQuestion
 ---
 <objective>
-Start the automated pipeline for a feature. Select stages with --stages (default all). Supports checkpoint resume if interrupted.
+Start the automated pipeline for a feature. Select stages with --stages (default all). Supports checkpoint resume if interrupted, with a frozen `RUN.json` snapshot and explicit dirty-worktree gating before execution.
 </objective>
 
 <execution_context>

@@ -21,7 +21,6 @@ function createWorkspace(shipStrategy) {
       'schema_version: 2',
       `workspace: ${root}`,
       'defaults:',
-      '  active_feature: feat-a',
       '  active_cluster: dev',
       '  features:',
       '    - feat-a',

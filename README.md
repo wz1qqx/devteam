@@ -64,6 +64,17 @@ The orchestrator owns all `AskUserQuestion` calls — plugin agents cannot use i
 |---------|-------------|
 | `/devteam team <feature>` | Run pipeline with configurable stages |
 
+### Runtime State Helpers
+
+| Command | Description |
+|---------|-------------|
+| `node lib/devteam.cjs run init --feature <name> --stages <csv>` | Create or reuse `.dev/features/<feature>/RUN.json` |
+| `node lib/devteam.cjs run get --feature <name>` | Read the active run snapshot |
+| `node lib/devteam.cjs run reset --feature <name>` | Remove active run snapshot before restart |
+| `node lib/devteam.cjs tasks sync-from-plan --feature <name>` | Generate authoritative `.dev/features/<feature>/tasks.json` from `plan.md` |
+| `node lib/devteam.cjs tasks update --feature <name> --id <task-id> --status <status>` | Update machine task status for code/pause/resume |
+| `node lib/devteam.cjs hooks run --feature <name> --phase <phase>` | Execute normalized phase hooks + matching learned hooks |
+
 Options:
 - `--stages spec,plan,code,review,build,ship,verify` — select which stages to run (default: all)
 - `--max-loops N` — optimization loop iterations (default: 3)
@@ -81,8 +92,8 @@ Options:
 
 | Command | Description |
 |---------|-------------|
-| `/devteam pause` | Save session state (HANDOFF.json + STATE.md) |
-| `/devteam resume` | Restore state, show dashboard, suggest next action |
+| `/devteam pause` | Save feature-scoped handoff (`HANDOFF.json` + `STATE.md`) |
+| `/devteam resume` | Restore a feature from `HANDOFF.json`, `STATE.md`, and `context.md` |
 
 ### Project View
 
@@ -123,6 +134,7 @@ User → /devteam team my-feature --stages code,review
 ```
 /devteam team my-feature --stages code,review,build
   │
+  ├── run init (create RUN.json snapshot + dirty-worktree gate)
   ├── TeamCreate("devteam-my-feature")
   ├── Create tasks only for selected stages (dynamic dependency chain)
   ├── Write pipeline_stages to STATE.md for checkpoint tracking
@@ -150,6 +162,7 @@ pipeline_loop_count: "0"
 ```
 
 If the orchestrator is interrupted mid-pipeline, the next `/devteam team` invocation detects prior progress and offers: "Resume from build? Or restart?"
+Restart should clear both pipeline checkpoint fields and the previous `RUN.json`, then reinitialize a fresh run snapshot.
 
 ### Feedback Loops
 
@@ -168,9 +181,13 @@ printf '%s' "$AGENT_MESSAGE" | node lib/devteam.cjs stage-result parse --stage r
 printf '%s' "$AGENT_MESSAGE" | node lib/devteam.cjs stage-result parse --stage review --report-path .dev/features/my-feature/review.md
 printf '%s' "$AGENT_MESSAGE" | node lib/devteam.cjs stage-result decide --stage review --review-cycle 0 --max-review-cycles 2
 printf '%s' "$AGENT_MESSAGE" | node lib/devteam.cjs stage-result accept --stage review --report-path .dev/features/my-feature/review.md
-node lib/devteam.cjs pipeline init --stages code,review,build
-node lib/devteam.cjs pipeline loop --count 1
-node lib/devteam.cjs pipeline complete --stages code,review,build --summary "Pipeline complete for my-feature"
+node lib/devteam.cjs run init --feature my-feature --stages code,review,build
+node lib/devteam.cjs run get --feature my-feature
+node lib/devteam.cjs run reset --feature my-feature
+node lib/devteam.cjs build record --feature my-feature --tag v2 --changes "optimize decode path" --mode fast
+node lib/devteam.cjs pipeline init --feature my-feature --stages code,review,build
+node lib/devteam.cjs pipeline loop --feature my-feature --count 1
+node lib/devteam.cjs pipeline complete --feature my-feature --stages code,review,build --summary "Pipeline complete for my-feature"
 ```
 
 Preferred orchestration path: use `orchestration resolve-stage` from the prompt layer, and treat `stage-result parse/decide/accept` as lower-level building blocks for debugging or finer-grained tooling.
@@ -217,11 +234,12 @@ devteam/
 │   ├── init.cjs                   # Compound context loader (17 workflow types)
 │   ├── config.cjs                 # workspace.yaml + feature config loading
 │   ├── state.cjs                  # Phase + STATE.md field management
-│   ├── session.cjs                # STATE.md + HANDOFF.json read/write
+│   ├── session.cjs                # Feature-scoped STATE.md + HANDOFF.json helpers
 │   ├── stage-result.cjs           # STAGE_RESULT parser + report persistence helper
 │   ├── stage-decision.cjs         # Maps STAGE_RESULT to orchestrator branch decisions
 │   ├── stage-acceptance.cjs       # Accepts PASS stage results and writes state/checkpoint
 │   ├── pipeline-state.cjs         # Pipeline init/reset/loop/complete helper
+│   ├── hooks-runner.cjs           # Unified hooks execution path + phase semantics
 │   ├── orchestration-kernel.cjs   # High-level parse/decide/accept orchestration helper
 │   ├── checkpoint.cjs             # Devlog checkpoints
 │   ├── version.cjs                # VERSION loader
@@ -232,10 +250,10 @@ devteam/
 │   ├── hooks.json                 # Hook registrations
 │   ├── devteam-context-monitor.js # PostToolUse: context window warnings (35%/25%)
 │   ├── devteam-persistent.js      # Stop: persistent mode engine
-│   ├── devteam-statusline.js      # StatusLine command target
-│   └── my-dev-statusline.js       # Backward-compat statusline wrapper
+│   └── devteam-statusline.js      # StatusLine command target
 │
 ├── templates/STATE.md             # STATE.md template (with pipeline checkpoint fields)
+├── templates/context.md           # context.md template (decisions + blockers)
 └── bin/
     ├── generate-commands.cjs      # Regenerate commands from registry
     ├── sync-version.cjs           # Sync VERSION into manifests + README
@@ -255,9 +273,22 @@ vault: ~/Obsidian/MyVault              # Optional: wiki persistence
 
 repos:
   my-repo:
-    upstream: https://github.com/org/repo
+    remotes:
+      official: https://github.com/org/repo
+      corp: git@internal.example.com:team/repo.git
+      personal: git@github.com:me/repo.git
     baselines:
-      v1.0: my-repo-v1.0
+      v1.0:
+        id: baseline-v1
+        ref: v1.0
+        worktree: my-repo-v1.0
+        read_only: true
+    dev_slots:
+      feat-slot:
+        worktree: my-repo-dev
+        baseline_id: baseline-v1
+        sharing_mode: shared
+        owner_features: [my-feature]
 
 build_server:
   ssh: user@build-server
@@ -273,27 +304,38 @@ clusters:
       gpu: "8x A100"
 
 defaults:
-  active_feature: my-feature           # optional — auto-selects if only 1 feature
   active_cluster: dev-cluster
   features:
-    - my-feature
+    - my-feature                      # Every declared feature must have .dev/features/<name>/config.yaml
+  tuning:                             # Optional; loader fills missing tuning keys with defaults
+    build_history_limit: 5
 ```
 
 Feature config lives in `.dev/features/my-feature/config.yaml`:
 
 ```yaml
 description: "My awesome feature"
-phase: spec                            # spec|plan|code|test|review|ship|debug|dev|completed
+phase: spec                            # Optional; omitted phase defaults to spec
+scope: {}                              # Empty repo scope is valid; null also works
+```
+
+Or a populated scope:
+
+```yaml
 scope:
   my-repo:
+    dev_slot: feat-slot
     base_ref: v1.0
-    dev_worktree: my-repo-dev
 
 ship:
   strategy: k8s                        # currently only k8s is implemented
 ```
 
-Feature selection: if only one feature exists it's auto-selected. If multiple exist and no `--feature` or `active_feature` is set, the skill prompts you to choose.
+Config loading is fail-fast: invalid `phase`, invalid `scope`, invalid workspace or feature config block types, unsupported `ship.strategy`, or a feature listed in `defaults.features` without a matching config file all stop CLI execution immediately.
+It also normalizes missing `phase` to `spec`, missing `build_history` to `[]`, missing `ship`/`build`/`deploy`/`benchmark`/`verify` blocks to `{}`, missing `build_server`/`devlog`/`observability` to `{}`, missing `repos.<name>.remotes`/`baselines`/`dev_slots` and `clusters.<name>.hardware`/`network` to `{}`, and missing hook lists to empty arrays.
+Legacy `repos.<name>.upstream`, compact `baselines` (`ref: path`), and scope-level `dev_worktree` are still accepted for migration.
+
+Feature selection: if only one feature exists it's auto-selected. If multiple exist, pass `--feature <name>` or let the skill prompt once and carry that selection through the current session.
 
 See [`skills/references/schema.md`](skills/references/schema.md) for the complete schema reference.
 
@@ -327,6 +369,21 @@ The planner groups independent tasks into waves. The current executor consumes t
 
 Any other strategy is rejected during config loading instead of silently falling into the k8s path.
 
+### Build Chain Fidelity
+
+Build records distinguish:
+- `parent_image` (actual parent used by this build)
+- `fallback_base_image` (configured base image when no prior tag exists)
+- `resulting_image` / `resulting_tag`
+
+`build record` also captures run-scoped repo SHA context from `RUN.json` (`source_refs`) so build provenance is tied to the frozen run snapshot.
+
+### Repo Topology Model
+
+- `remotes` models official/corp/personal Git remotes explicitly (legacy `upstream` still mapped to `remotes.official`).
+- `baselines` are normalized baseline objects (`id`, `ref`, `worktree`, `read_only`) instead of anonymous `ref -> path` only.
+- `dev_slots` represent reusable writable worktree slots and are referenced by feature `scope.<repo>.dev_slot`.
+
 ### Namespace Safety
 
 All `kubectl` commands are enforced with `-n <namespace>`. Production clusters (`safety: prod`) require user confirmation (via orchestrator's AskUserQuestion) before deployment.
@@ -337,9 +394,25 @@ All `kubectl` commands are enforced with `-n <namespace>`. Production clusters (
 2. **Wiki Pages** (`wiki/` + `experience/`) — loaded on demand via semantic matching
 3. **Archive** (`devlog/`, `archive/`) — search only, never loaded into context
 
-### Session Handoff
+### Session Memory Model
 
-`/devteam pause` captures uncommitted files, plan progress, and context notes into `HANDOFF.json` + `STATE.md`. `/devteam resume` restores everything — zero-loss across sessions.
+Session artifacts are feature-scoped under `.dev/features/<feature>/`:
+- `RUN.json` freezes pipeline execution scope (repos, start heads, dirty policy, selected stages)
+- `tasks.json` is the authoritative machine-readable task state for plan/code/pause/resume
+- `STATE.md` tracks workflow position and pipeline checkpoints
+- `HANDOFF.json` captures precise pause/resume context for the next session
+- `context.md` stores decisions plus active and archived blockers
+
+`/devteam pause` refreshes those artifacts for the selected feature. `/devteam resume` reloads them for that same feature. There is no workspace-level runtime handoff file and no shared active-feature pointer.
+
+### Integration Hardening Coverage
+
+Runtime contracts are validated with integration-style tests for real workflows:
+- same repo shared by multiple features with different `dev_slot` bindings
+- dirty-worktree gate before pipeline init
+- partial code-stage resume based on `tasks.json` next task selection
+- unified hooks runner behavior across pre/post phases
+- first-build vs incremental-build parent-chain fidelity with run-scoped source refs
 
 ### Hooks
 
@@ -348,6 +421,18 @@ All `kubectl` commands are enforced with `-n <namespace>`. Production clusters (
 | Context Monitor | PostToolUse | Warns at 35% (warning) and 25% (critical) context remaining |
 | Persistent Mode | Stop | Prevents session exit during active pipeline execution |
 | Statusline | Claude `statusLine` setting | Shows `Model | ctx [====    ] 42% | project | feature | [phase]` |
+
+Runtime stage hooks are executed through one CLI path:
+
+```bash
+node lib/devteam.cjs hooks run --feature my-feature --phase pre_build
+```
+
+Blocking semantics are enforced by the runner:
+- `pre_build`, `pre_deploy`: blocking
+- `post_build`, `post_deploy`, `post_verify`: non-blocking (warn + continue)
+
+Learned hooks are not a separate execution path; `hooks.learned[]` entries are filtered by `trigger == <phase>` and run after the phase hook array in deterministic order.
 
 Statusline setup is separate from `hooks/hooks.json`. Use Claude Code's `statusLine` setting and the example in [templates/statusline-settings.json](/Users/ppio-dn-289/Documents/devteam/templates/statusline-settings.json:1).
 

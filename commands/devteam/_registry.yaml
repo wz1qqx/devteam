@@ -21,14 +21,14 @@ commands:
   # ═══════════════════════════════════════
 
   pause:
-    description: Save session state for later resume — writes HANDOFF.json and updates STATE.md
-    objective: Capture the current session state into HANDOFF.json and STATE.md for zero-loss session handoff.
+    description: Save feature-scoped session state — writes HANDOFF.json and refreshes STATE.md
+    objective: Capture the current feature session into .dev/features/<feature>/HANDOFF.json, refresh feature STATE.md, and preserve zero-loss resume context.
     skill: pause.md
     allowed-tools: [Read, Write, Bash, Glob, Grep]
 
   resume:
-    description: Restore session state and show current status
-    objective: Restore session state from HANDOFF.json, STATE.md, and feature context.md.
+    description: Restore a feature-scoped session and show current status
+    objective: Restore session state from .dev/features/<feature>/HANDOFF.json, STATE.md, and context.md.
     skill: resume.md
     allowed-tools: [Read, Bash, Glob, Grep]
 
@@ -41,7 +41,7 @@ commands:
     objective: Display a comprehensive project overview including config, worktree states, active deployments, and pipeline stage.
     init-as: status
     allowed-tools: [Read, Bash, Glob, Grep]
-    inline-process: "Parse $INIT JSON. Display: active feature, current phase, repos (commits ahead, uncommitted), cluster info, build history, team status if active. Format as dashboard table."
+    inline-process: "Parse $INIT JSON. Display: selected feature if one is resolved, current phase, repos (commits ahead, uncommitted), cluster info, build history, team status if active. Format as dashboard table."
 
   diff:
     description: Show worktree changes across repositories
@@ -75,9 +75,9 @@ commands:
   # ═══════════════════════════════════════
 
   feature:
-    description: List features and select/delete — use at session start to pick active feature
+    description: List features and select/delete — use at session start to pick a feature for this session
     argument-hint: "[list|delete] [name]"
-    objective: Show all features with status, let user select one to bind as active, or delete a feature. When invoked without args, list features and prompt user to choose.
+    objective: Show all features with status, let user select one for the current session, or delete a feature. When invoked without args, list features and prompt user to choose.
     init-as: workspace
     allowed-tools: [Read, Write, Bash, Glob, Grep, AskUserQuestion]
     inline-process: |
@@ -85,8 +85,8 @@ commands:
       2. Display features as a table: name, description, phase, scope
       3. If action is `delete`: confirm with AskUserQuestion, then run `node "$DEVTEAM_BIN" features delete <name>`
       4. If action is `list` or no action: use AskUserQuestion to let user pick a feature
-      5. Run `node "$DEVTEAM_BIN" features switch <selected>` to bind the selection
-      6. Show confirmation: "Feature '<name>' is now active"
+      5. Keep the selected feature in session context and pass `--feature <selected>` to subsequent devteam CLI/init calls in this session
+      6. Show confirmation: "Feature '<name>' selected for this session"
 
   init:
     description: Initialize workspace or add a new feature
@@ -94,7 +94,7 @@ commands:
     objective: Bootstrap a new workspace (workspace.yaml, directories, baselines) or add a new feature with scope, worktrees, and initial config.
     init-as: workspace
     allowed-tools: [Read, Write, Bash, Glob, Grep, AskUserQuestion]
-    inline-process: "Parse action (workspace|feature). WORKSPACE: create workspace.yaml with schema_version 2, create .dev/ directory, configure repos and baselines, set defaults. FEATURE: prompt for name/description/scope, create feature config.yaml, create .dev/features/<name>/ directory, set as active feature."
+    inline-process: "Parse action (workspace|feature). WORKSPACE: create workspace.yaml with schema_version 2, create .dev/ directory, configure repos and baselines, set defaults. FEATURE: prompt for name/description/scope, create feature config.yaml, create .dev/features/<name>/ directory, and register the name under defaults.features."
 
   cluster:
     description: Manage Kubernetes clusters — add, use, list

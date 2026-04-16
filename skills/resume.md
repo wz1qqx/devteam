@@ -1,7 +1,12 @@
 # Skill: resume
 
-<purpose>Restore session state from HANDOFF.json, STATE.md, and feature context.md. Zero context loss across sessions -- load everything needed to continue exactly where the user left off.</purpose>
+<purpose>Restore session state from feature-scoped HANDOFF.json, STATE.md, and context.md. Zero context loss across sessions -- load everything needed to continue exactly where the user left off.</purpose>
 <core_principle>The resumed session must have the same effective context as the paused session. HANDOFF.json gives precise position; STATE.md gives workflow position; feature context.md gives decisions and blockers. Feature artifacts provide domain context. The user should never need to re-explain.</core_principle>
+
+Runtime artifact precedence during resume:
+1. `tasks.json` determines remaining/next executable tasks.
+2. `RUN.json` determines frozen repo/worktree/SHA execution identity.
+3. `plan.md` is a rendered summary for humans and must not override task state.
 
 <process>
 <step name="INIT" priority="first">
@@ -22,7 +27,7 @@ Gate: `workspace.yaml` must exist. If not: "No project found. Run `/devteam init
 </step>
 
 <step name="LOAD_HANDOFF">
-Parse HANDOFF.json for precise session position.
+Parse the feature-scoped HANDOFF.json for precise session position.
 
 ```bash
 HANDOFF_PATH="$WORKSPACE/.dev/features/$FEATURE/HANDOFF.json"
@@ -54,22 +59,20 @@ If HANDOFF.json exists:
   rm "$WORKSPACE/.dev/features/$FEATURE/HANDOFF.json"
   ```
 
-If no HANDOFF.json: note "No HANDOFF found. Resuming from STATE.md and feature context."
+If no HANDOFF.json: note "No feature-scoped HANDOFF found. Resuming from STATE.md and feature context."
 </step>
 
 <step name="LOAD_STATE">
 Load STATE.md for workflow position and recent activity.
 
 ```bash
-STATE_PATH="$WORKSPACE/.dev/STATE.md"
+STATE_PATH="$WORKSPACE/.dev/features/$FEATURE/STATE.md"
 ```
 
 If STATE.md exists:
-- Parse frontmatter only: project, phase, current_feature, feature_stage, plan_progress, last_activity
+- Parse frontmatter only: project, phase, feature_stage, plan_progress, last_activity
 - Read `## Position` section for current activity summary and next step
 - Do NOT load Decisions or Blockers from STATE.md — these are feature-scoped and loaded in LOAD_FEATURE_CONTEXT
-
-If STATE.md exists but has old-format `## Decisions` / `## Blockers` sections: ignore them silently (backward compat, do not migrate).
 
 If no STATE.md: "No STATE.md found. Will be created on next workflow action."
 </step>
@@ -99,18 +102,35 @@ If context.md exists:
 If context.md missing: "No feature context found. Will be created on first pause."
 
 **Feature artifacts** (load if available):
-- `features/$FEATURE/plan.md` -- current plan with task statuses
+- `features/$FEATURE/tasks.json` -- authoritative machine task state
+- `features/$FEATURE/plan.md` -- human-readable rendered plan
 - `features/$FEATURE/spec.md` -- feature specification
 - `features/$FEATURE/review.md` -- code review results
 - `features/$FEATURE/verify.md` -- verification and benchmark summary
 - `features/$FEATURE/optimization-guidance.md` -- optimization guidance from vLLM-Opter
 
+Task summary source:
+```bash
+TASK_SUMMARY=$(node "$DEVTEAM_BIN" tasks summary --feature "$FEATURE")
+DONE=$(echo "$TASK_SUMMARY" | jq -r '.summary.completed_tasks')
+TOTAL=$(echo "$TASK_SUMMARY" | jq -r '.summary.total_tasks')
+```
+
+Run snapshot source:
+```bash
+RUN_STATE=$(node "$DEVTEAM_BIN" run get --feature "$FEATURE")
+RUN_PATH=$(echo "$RUN_STATE" | jq -r '.run_path')
+RUN_ID=$(echo "$RUN_STATE" | jq -r '.run.run_id // empty')
+```
+
 Display feature artifact status:
 ```
 Feature: $FEATURE
   Spec:    [exists/missing]
+  Tasks:   [exists/missing] (<done>/<total> tasks)
+  Run:     [exists/missing] (run_id: <run-id>)
   Context: [exists/missing] (<N> decisions, <M> active blockers)
-  Plan:    [exists/missing] (<done>/<total> tasks)
+  Plan:    [exists/missing]
   Review:  [exists/missing] (verdict: <verdict>)
   Verify:  [exists/missing] (smoke + benchmark summary)
   Opt:     [exists/missing] (latest optimization guidance)
@@ -193,15 +213,15 @@ Suggested next step: <next_action from HANDOFF>
 
 | Phase | Suggestion |
 |---|---|
-| `init` | "Project initialized. Start with: `/devteam team`" |
-| `dev` | "Continue development. Build when ready: `/devteam team`" |
-| `build` | "Build complete ($CURRENT_TAG). Deploy: `/devteam team`" |
-| `deploy` | "Deployed. Verify: `/devteam team`" |
+| `init` | "Project initialized. Start with: `/devteam team $FEATURE`" |
+| `dev` | "Continue development. Build when ready: `/devteam team $FEATURE`" |
+| `build` | "Build complete ($CURRENT_TAG). Deploy: `/devteam team $FEATURE`" |
+| `deploy` | "Deployed. Verify: `/devteam team $FEATURE`" |
 | `verify` | "Verified. Start next feature or observe." |
 | `debug` | "Debug session active. Resume investigation." |
 
 **Check for in-progress work**:
-- Plan with pending tasks: "Resume execution: `/devteam team $FEATURE`"
+- `tasks.json` with pending/in_progress tasks: "Resume execution: `/devteam team $FEATURE`"
 - Review with FAIL verdict: "Fix review issues: `/devteam team $FEATURE`"
 - Uncommitted files: "Warning: N uncommitted files. Commit or stash before proceeding."
 
@@ -220,7 +240,7 @@ Active blockers may affect next steps:
 | Temptation | Reality Check |
 |---|---|
 | "I remember the context" | This is a new session. You have zero prior context. Load everything. |
-| "HANDOFF is enough" | HANDOFF is position. STATE.md is history. Feature artifacts are domain knowledge. Load all three. |
+| "HANDOFF is enough" | HANDOFF is position. Feature STATE.md is history. Feature artifacts are domain knowledge. Load all three. |
 | "I'll figure out what to do" | The paused session already determined next_action. Follow it. |
 | "Uncommitted files are fine" | They might be intentional WIP or forgotten changes. Surface them explicitly. |
 | "Wiki context is optional" | Domain knowledge prevents re-derivation. Load it. |

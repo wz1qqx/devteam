@@ -20,7 +20,7 @@ function runStatusline(input) {
   });
 }
 
-function createWorkspace({ activeFeature = null, featureCount = 1, phase = 'code' } = {}) {
+function createWorkspace({ featureCount = 1, phase = 'code' } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-week4-'));
   const featureLines = [];
   for (let i = 0; i < featureCount; i++) {
@@ -35,7 +35,6 @@ function createWorkspace({ activeFeature = null, featureCount = 1, phase = 'code
       'devlog:',
       '  group: inference-platform',
       'defaults:',
-      activeFeature ? `  active_feature: ${activeFeature}` : null,
       '  active_cluster: dev',
       '  features:',
       ...featureLines,
@@ -62,14 +61,14 @@ function createWorkspace({ activeFeature = null, featureCount = 1, phase = 'code
 }
 
 function testReadsNestedWorkspaceFields() {
-  const root = createWorkspace({ activeFeature: 'feat-a', featureCount: 2, phase: 'review' });
+  const root = createWorkspace({ featureCount: 2, phase: 'review' });
   const output = runStatusline({
     cwd: root,
     model: { display_name: 'Claude Test' },
     context_window: { used_percentage: 42 },
   });
 
-  assert.match(output, /^Claude Test \| ctx \[====      \] 42% \| inference-platform \| feat-a \| \[review\]$/);
+  assert.match(output, /^Claude Test \| ctx \[====      \] 42% \| inference-platform$/);
 }
 
 function testFallsBackToSingleFeatureWithoutActiveFeature() {
@@ -84,7 +83,7 @@ function testFallsBackToSingleFeatureWithoutActiveFeature() {
 }
 
 function testFallsBackToFeatureStateForPhase() {
-  const root = createWorkspace({ activeFeature: 'feat-a', featureCount: 1, phase: '' });
+  const root = createWorkspace({ featureCount: 1, phase: '' });
   writeFile(
     path.join(root, '.dev', 'features', 'feat-a', 'STATE.md'),
     [
@@ -103,10 +102,31 @@ function testFallsBackToFeatureStateForPhase() {
   assert.match(output, /^Claude Test \| inference-platform \| feat-a \| \[verify\]$/);
 }
 
+function testDoesNotReadGlobalStateFallback() {
+  const root = createWorkspace({ featureCount: 1, phase: '' });
+  writeFile(
+    path.join(root, '.dev', 'STATE.md'),
+    [
+      '---',
+      'feature_stage: ship',
+      'phase: build',
+      '---',
+    ].join('\n') + '\n'
+  );
+
+  const output = runStatusline({
+    cwd: root,
+    model: { display_name: 'Claude Test' },
+  });
+
+  assert.match(output, /^Claude Test \| inference-platform \| feat-a$/);
+}
+
 function main() {
   testReadsNestedWorkspaceFields();
   testFallsBackToSingleFeatureWithoutActiveFeature();
   testFallsBackToFeatureStateForPhase();
+  testDoesNotReadGlobalStateFallback();
   console.log('week4-statusline: ok');
 }
 

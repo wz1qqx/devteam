@@ -1,6 +1,6 @@
 ---
 name: devteam:resume
-description: Restore session state and show current status
+description: Restore a feature-scoped session and show current status
 allowed-tools:
   - Read
   - Bash
@@ -8,7 +8,7 @@ allowed-tools:
   - Grep
 ---
 <objective>
-Restore session state from HANDOFF.json, STATE.md, and feature context.md.
+Restore session state from .dev/features/<feature>/HANDOFF.json, STATE.md, context.md, and tasks.json.
 </objective>
 
 <execution_context>

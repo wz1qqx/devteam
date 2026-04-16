@@ -46,25 +46,47 @@ clusters:
 # ═══════════════════════════════════════
 # REPO 定义 (workspace 级，所有 feature 共享)
 # ═══════════════════════════════════════
-# 每个 repo 声明 upstream URL 和已创建的 baseline worktrees
-# Feature 从这里选择需要的 repo + base_ref
+# 每个 repo 声明 remotes / baselines / dev_slots
+# Feature scope 优先引用 dev_slot（旧的 dev_worktree 仍兼容）
 
 repos:
   <name>:
-    upstream: <git-url>             # Remote repository URL
-    baselines:                      # 已创建的 baseline worktrees
-      <ref>: <worktree-dir>        # ref → worktree dir name
+    # Legacy alias (still accepted): upstream
+    # New model: explicit remotes
+    remotes:
+      official: <git-url|null>
+      corp: <git-url|null>
+      personal: <git-url|null>
+
+    baselines:
+      # Legacy compact form (still accepted):
+      # <ref>: <worktree-dir>
+      #
+      # Recommended object form:
+      <baseline-id>:
+        id: <string>                 # Stable identity; defaults to map key
+        ref: <string>                # Git ref/tag/branch represented by this baseline
+        worktree: <worktree-dir>
+        read_only: <bool>            # default true
+
+    dev_slots:
+      <slot-id>:
+        repo: <repo-name>            # default current repo key
+        worktree: <worktree-dir>
+        baseline_id: <baseline-id>   # optional; links slot to baseline object
+        baseline_ref: <ref>          # optional fallback when baseline_id omitted
+        sharing_mode: exclusive | shared
+        owner_features: [<feature>, ...]
 
 # ═══════════════════════════════════════
 # 默认值
 # ═══════════════════════════════════════
 
 defaults:
-  active_feature: <string>          # Currently active feature
   active_cluster: <string>          # Which cluster to use by default
   features:                         # Explicit feature name list (managed by CLI — do not edit manually)
-    - <name>                        # Each entry has a corresponding .dev/features/<name>/config.yaml
-  tuning:                           # Optional tunable parameters (all have defaults)
+    - <name>                        # Each entry must have a corresponding .dev/features/<name>/config.yaml
+  tuning:                           # Optional tunable parameters (loader fills missing keys with defaults)
     regression_threshold: 20        # Benchmark regression alert threshold (%)
     max_optimization_loops: 3       # Max vLLM-Opter → re-plan → re-verify iterations
     max_task_retries: 2             # code max retries per failed task
@@ -72,6 +94,18 @@ defaults:
     deploy_poll_interval: 15        # Pod status poll interval (seconds)
     build_history_limit: 5          # Number of build history entries in context
     commit_format: "feat({feature}): {title}"  # Commit message template
+
+# Workspace loading is fail-fast:
+# - build_server/devlog/observability must be mappings or null
+# - repos must be a mapping; each repos.<name> must be a mapping
+# - repos.<name>.remotes must be a mapping or null
+# - repos.<name>.baselines must be a mapping or null
+# - repos.<name>.dev_slots must be a mapping or null
+# - clusters must be a mapping; each clusters.<name> must be a mapping
+# - clusters.<name>.hardware and network must be mappings or null
+# - missing build_server/devlog/observability => normalized to {}
+# - missing repos.<name>.remotes/baselines/dev_slots => normalized to {}
+# - missing clusters.<name>.hardware/network => normalized to {}
 
 # ═══════════════════════════════════════
 # FEATURE 级 — .dev/features/<name>/config.yaml
@@ -83,18 +117,31 @@ description: <string>
 created: <YYYY-MM-DD>
 
 scope:                          # 涉及哪些 repo
+  # Empty scope may be {} or null
   <repo-name>:
-    base_ref: <tag|commit>      # Baseline version from repos.<name>.baselines
-                                # base_worktree is computed by CLI from repos.<name>.baselines[base_ref], do NOT set here
-    dev_worktree: <dir|null>    # Active dev worktree (null = not yet created)
-    shared_with: <feature>      # Optional: if worktree is shared with another feature
+    dev_slot: <slot-id|null>    # Preferred: reference repos.<name>.dev_slots.<slot-id>
+    base_ref: <tag|commit>      # Optional override; otherwise derived from slot baseline
+    # Legacy compatibility:
+    # dev_worktree: <dir|null>
+    # shared_with: <feature>
     build_type: <string>        # Optional: e.g. "wheel"
 
 # 生命周期状态
-phase: spec | plan | code | test | review | ship | debug | dev | completed
+phase: spec | plan | code | review | build | ship | verify | vllm-opt | test | debug | dev | completed
+# If omitted, loader normalizes phase to spec
 current_tag: <string>           # Latest built image tag
 base_image: <string|null>       # Base Docker image
 cluster: <string>               # Override cluster for this feature
+
+# Config loading is fail-fast:
+# - invalid phase => error
+# - scope must be a mapping or null
+# - each scope.<repo> entry must be a mapping
+# - ship/build/deploy/benchmark/verify/invariants must be mappings or null
+# - unsupported ship.strategy => error
+# - missing build_history => normalized to []
+# - missing ship/build/deploy/benchmark/verify => normalized to {}
+# - missing hooks arrays => normalized to []
 
     # Feature-specific 配置 (all optional)
     invariants:
@@ -103,16 +150,40 @@ cluster: <string>               # Override cluster for this feature
       pre_deploy_node_check: <bool>
 
     hooks:
-      pre_build: [<script_name>, ...]
-      post_build: [<script_name>, ...]
-      pre_deploy: [<script_name>, ...]
-      post_deploy: [<script_name>, ...]
-      post_verify: [<script_name>, ...]
+      pre_build: [<command|string|object>, ...]
+      post_build: [<command|string|object>, ...]
+      pre_deploy: [<command|string|object>, ...]
+      post_deploy: [<command|string|object>, ...]
+      post_verify: [<command|string|object>, ...]
       learned:
         - name: <string>
-          trigger: <phase>
+          trigger: pre_build | post_build | pre_deploy | post_deploy | post_verify
           added: <YYYY-MM-DD>
-          rule: <string>
+          command: <string>             # Preferred executable command
+          rule: <string>                # Backward-compatible alias; treated as command if command missing
+          cwd: <path>                   # Optional; relative to workspace if not absolute
+          env:
+            <KEY>: <value>              # Optional extra env vars
+
+    # Runtime hook execution contract (single path):
+    #   node lib/devteam.cjs hooks run --feature <name> --phase <phase>
+    #
+    # Runner behavior:
+    # - deterministic order: hooks.<phase>[] first, then hooks.learned[] filtered by trigger == <phase>
+    # - phase blocking:
+    #   - pre_build:  blocking
+    #   - post_build: non-blocking
+    #   - pre_deploy: blocking
+    #   - post_deploy: non-blocking
+    #   - post_verify: non-blocking
+    # - environment injected to every hook command:
+    #   DEVTEAM_FEATURE
+    #   DEVTEAM_PHASE
+    #   DEVTEAM_TRIGGER
+    #   DEVTEAM_WORKSPACE
+    #   DEVTEAM_RUN_PATH
+    #   DEVTEAM_REPOS
+    #   (plus per-repo DEVTEAM_REPO_<REPO>_{DEV_WORKTREE,BASE_WORKTREE,BASE_REF})
 
     build:
       image_name: <string>          # Docker image name (defaults to feature name if omitted)
@@ -192,14 +263,22 @@ cluster: <string>               # Override cluster for this feature
     build_history:                     # Last N entries (truncated by tuning.build_history_limit)
       - tag: <string>                  # Image tag (e.g. "v8")
         date: <YYYY-MM-DD>
+        parent_image: <string|null>    # Parent image actually used for this build
+        fallback_base_image: <string|null>  # Configured feature.base_image at build time
+        resulting_tag: <string>        # Result tag produced by this build
+        resulting_image: <string|null> # Full result image ref if registry + image_name known
         changes: <string>              # One-line summary of what changed
         mode: <string>                 # fast | rust | full
-        base: <string>                 # Full base image reference used
+        base: <string|null>            # Legacy alias for parent_image (kept for compatibility)
         cluster: <string>              # Cluster deployed to
         note: <string>                 # Optional free-form note
+        run_id: <string|null>          # RUN.json run_id if available
+        source_refs: [<repo@sha>, ...] # Repo/SHA identity captured from RUN.json
+        source_repos: [<repo>, ...]    # Participating repos from RUN.json
 
 # Build history is written via CLI — NEVER manually edit build_history or current_tag:
-#   node devteam.cjs build record --tag <tag> --base <base> --changes "<summary>" \
+#   node devteam.cjs build record --tag <tag> --changes "<summary>" \
+#     [--parent-image <image>] [--fallback-base-image <image>] [--result-image <image>] \
 #     [--mode fast|rust|full] [--cluster <name>] [--note "<note>"]
 #
 # This also writes the permanent (never-truncated) record to:
@@ -242,7 +321,7 @@ observability:
 |----------|--------|
 | `{vault}` | Top-level `vault` field |
 | `{group}` | `devlog.group` |
-| `{feature}` | `defaults.active_feature` |
+| `{feature}` | Current command/session feature selection |
 | `{topic}` | Debug topic argument |
 
 ## Distribution Format

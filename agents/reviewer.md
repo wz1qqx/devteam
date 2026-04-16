@@ -18,6 +18,7 @@ DEVTEAM_BIN=$(ls ~/.claude/plugins/cache/devteam/devteam/*/lib/devteam.cjs 2>/de
 INIT=$(node "$DEVTEAM_BIN" init team-review)
 FEATURE=$(echo "$INIT" | jq -r '.feature.name')
 WORKSPACE=$(echo "$INIT" | jq -r '.workspace')
+RUN_PATH=$(echo "$INIT" | jq -r '.run.path // empty')
 REPOS=$(echo "$INIT" | jq -r '.repos | to_entries[] | .key')
 INVARIANTS=$(echo "$INIT" | jq -r '.invariants // {}')
 KNOWLEDGE_NOTES=$(echo "$INIT" | jq -c '.knowledge_notes // []')
@@ -28,6 +29,7 @@ For each repo in `$REPOS`:
 for REPO in $REPOS; do
   DEV_WORKTREE=$(echo "$INIT" | jq -r ".repos[\"$REPO\"].dev_worktree")
   BASE_REF=$(echo "$INIT" | jq -r ".repos[\"$REPO\"].base_ref")
+  START_HEAD=$(echo "$INIT" | jq -r ".repos[\"$REPO\"].start_head // .repos[\"$REPO\"].base_ref")
   BASE_WORKTREE=$(echo "$INIT" | jq -r ".repos[\"$REPO\"].base_worktree // empty")
 done
 ```
@@ -35,9 +37,10 @@ done
 Load:
 1. `.dev/features/$FEATURE/spec.md` — requirements
 2. `.dev/features/$FEATURE/plan.md` — intended changes
-3. Diffs: `git -C $DEV_WORKTREE diff $BASE_REF` for each repo
-4. `CLAUDE.md` — coding conventions
-5. Wiki pages from `$KNOWLEDGE_NOTES` — read each `{path}` file for domain context
+3. Run snapshot: `$RUN_PATH` (source-of-truth for frozen review scope)
+4. Diffs: `git -C $DEV_WORKTREE diff $START_HEAD` for each repo
+5. `CLAUDE.md` — coding conventions
+6. Wiki pages from `$KNOWLEDGE_NOTES` — read each `{path}` file for domain context
 </context>
 
 <constraints>
@@ -54,10 +57,10 @@ Load:
 <workflow>
 
 <step name="COLLECT_DIFFS">
-For each repo in `$REPOS` (using `$DEV_WORKTREE` and `$BASE_REF` from context):
-1. `git -C $DEV_WORKTREE diff --stat $BASE_REF` — summary
-2. `git -C $DEV_WORKTREE diff $BASE_REF` — full diff
-3. `git -C $DEV_WORKTREE log --oneline $BASE_REF..HEAD` — commits
+For each repo in `$REPOS` (using `$DEV_WORKTREE` and `$START_HEAD` from context):
+1. `git -C $DEV_WORKTREE diff --stat $START_HEAD` — summary
+2. `git -C $DEV_WORKTREE diff $START_HEAD` — full diff
+3. `git -C $DEV_WORKTREE log --oneline $START_HEAD..HEAD` — commits during this run
 </step>
 
 <step name="REVIEW_AXES">

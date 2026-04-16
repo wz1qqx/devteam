@@ -41,12 +41,10 @@ process.stdin.on('end', () => {
 
     // Track state in temp file for debounce
     const statePath = path.join(os.tmpdir(), `devteam-ctx-${sessionId}.json`);
-    const legacyStatePath = path.join(os.tmpdir(), `my-dev-ctx-${sessionId}.json`);
     let state = { callsSinceWarning: 0, lastSeverity: 'none' };
     try {
-      const candidatePath = fs.existsSync(statePath) ? statePath : legacyStatePath;
-      if (fs.existsSync(candidatePath)) {
-        state = JSON.parse(fs.readFileSync(candidatePath, 'utf8'));
+      if (fs.existsSync(statePath)) {
+        state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
       }
     } catch (e) { /* ignore */ }
 

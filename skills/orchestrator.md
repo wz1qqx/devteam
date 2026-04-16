@@ -16,6 +16,13 @@ restrictions and permissionMode from their frontmatter are enforced by Claude Co
 The orchestrator owns all user interaction (AskUserQuestion) since plugin agents cannot use it.
 The orchestrator also owns all checkpoint and pipeline-state writes. Agents report outcomes;
 the orchestrator decides whether a stage is accepted.
+
+Authoritative runtime artifacts:
+- `RUN.json`: frozen execution identity (repos/worktrees/start SHAs/dirty policy/stages)
+- `tasks.json`: authoritative machine task state for plan/code/pause/resume
+- `STATE.md`: checkpoint and stage progress view
+- `HANDOFF.json`: pause/resume transfer payload
+- `context.md`: feature-scoped decisions and blockers
 </core_principle>
 
 <process>
@@ -32,7 +39,7 @@ Parse from $ARGUMENTS:
 - **--stages X,Y,Z**: comma-separated stages to run (default: all)
   Valid stages: `spec,plan,code,review,build,ship,verify`
 - **--max-loops N**: max optimization iterations (default from tuning config)
-- **--skip-spec**: shorthand for removing `spec` from stages (backward compat)
+- **--skip-spec**: shorthand for removing `spec` from stages
 
 ```bash
 FEATURE="$1"
@@ -58,6 +65,7 @@ elif --skip-spec:
 else:
   STAGES = ALL_STAGES
 ```
+Also build `STAGES_CSV` from `STAGES`.
 
 ```bash
 MAX_LOOPS=$(echo "$INIT" | jq -r '.tuning.max_optimization_loops // 3')
@@ -69,13 +77,44 @@ MAX_LOOPS=$(echo "$INIT" | jq -r '.tuning.max_optimization_loops // 3')
 - If resume: set STAGES to remaining uncompleted stages
 - If restart:
   ```bash
-  node "$DEVTEAM_BIN" pipeline reset
+  node "$DEVTEAM_BIN" pipeline reset --feature "$FEATURE"
+  node "$DEVTEAM_BIN" run reset --feature "$FEATURE"
   ```
+
+Resume continuity rule:
+- Treat `tasks.json` as the source of truth for remaining work; `plan.md` checkboxes are a view only.
+
+**Run snapshot + dirty-worktree gate** (must happen before any stage execution):
+```bash
+RUN_INIT=$(node "$DEVTEAM_BIN" run init --feature "$FEATURE" --stages "$STAGES_CSV")
+RUN_PATH=$(echo "$RUN_INIT" | jq -r '.run_path')
+RUN_ID=$(echo "$RUN_INIT" | jq -r '.run.run_id')
+```
+
+If `RUN_INIT.requires_dirty_decision == true`:
+1. Surface dirty repos from `RUN_INIT.dirty_repos`.
+2. Ask user whether to continue or abort.
+3. If continue:
+   ```bash
+   RUN_INIT=$(node "$DEVTEAM_BIN" run init --feature "$FEATURE" --stages "$STAGES_CSV" --restart --dirty-decision continue)
+   RUN_PATH=$(echo "$RUN_INIT" | jq -r '.run_path')
+   RUN_ID=$(echo "$RUN_INIT" | jq -r '.run.run_id')
+   ```
+4. If abort:
+   ```bash
+   node "$DEVTEAM_BIN" run init --feature "$FEATURE" --stages "$STAGES_CSV" --restart --dirty-decision abort
+   ```
+   Stop orchestration without starting pipeline stages.
+
+Execution identity rule:
+- Every stage that touches code, review scope, build provenance, or deployment inputs must rely on
+  `$RUN_PATH` identity rather than re-deriving repo/worktree state from ambient files.
 
 Gates:
 - workspace.yaml must exist
 - Feature must be listed in workspace.yaml defaults.features
 - If "spec" in STAGES and spec.md exists, ask user whether to re-spec or skip
+- `RUN.json` must exist before pipeline init (`$RUN_PATH`)
 </step>
 
 <step name="CREATE_TEAM">
@@ -83,9 +122,9 @@ Create the team and task list — only for selected stages.
 
 1. `TeamCreate(team_name: "devteam-$FEATURE", description: "Pipeline for $FEATURE")`
 
-2. Record pipeline stages in STATE.md:
+2. Record pipeline stages in STATE.md (only after RUN snapshot is accepted):
 ```bash
-node "$DEVTEAM_BIN" pipeline init --stages "$STAGES_CSV"
+node "$DEVTEAM_BIN" pipeline init --feature "$FEATURE" --stages "$STAGES_CSV"
 ```
 
 3. Create tasks dynamically — only for stages in STAGES:
@@ -111,6 +150,7 @@ Report to user:
 devteam pipeline for: $FEATURE
 Stages: $STAGES_CSV
 Max optimization loops: $MAX_LOOPS
+Run snapshot: $RUN_PATH ($RUN_ID)
 ```
 </step>
 
@@ -206,6 +246,7 @@ Agent(
   team_name: "devteam-$FEATURE",
   prompt: "Create implementation plan for feature '$FEATURE' in workspace $WORKSPACE.
     Spec: $WORKSPACE/.dev/features/$FEATURE/spec.md
+    Run snapshot: $RUN_PATH
     [OPTIMIZATION_CONTEXT if present]
     Your task ID: $T_PLAN_ID"
 )
@@ -221,8 +262,10 @@ printf '%s' "$AGENT_MESSAGE" | node "$DEVTEAM_BIN" orchestration resolve-stage \
 Require:
 - `decision == accept`
 - metrics include `task_count`, `wave_count`, and `build_mode`
+- artifacts include both `plan.md` and `tasks.json`
 
 Verify `plan.md` exists.
+Verify `.dev/features/$FEATURE/tasks.json` exists.
 </step>
 
 <step name="RUN_CODE">
@@ -235,6 +278,7 @@ Agent(
   team_name: "devteam-$FEATURE",
   prompt: "Implement the plan for feature '$FEATURE' in workspace $WORKSPACE.
     Plan: $WORKSPACE/.dev/features/$FEATURE/plan.md
+    Run snapshot: $RUN_PATH
     [FIX_CONTEXT if reviewer sent fix instructions]
     Your task ID: $T_CODE_ID"
 )
@@ -275,6 +319,7 @@ Agent(
   prompt: "Review implementation for feature '$FEATURE' in workspace $WORKSPACE.
     Spec: $WORKSPACE/.dev/features/$FEATURE/spec.md
     Plan: $WORKSPACE/.dev/features/$FEATURE/plan.md
+    Review baseline must come from RUN snapshot start heads in $RUN_PATH.
     Your task ID: $T_REVIEW_ID"
 )
 ```
@@ -310,6 +355,7 @@ Agent(
   subagent_type: "devteam:builder",
   team_name: "devteam-$FEATURE",
   prompt: "Build Docker image for feature '$FEATURE' in workspace $WORKSPACE.
+    Run snapshot: $RUN_PATH
     Your task ID: $T_BUILD_ID"
 )
 ```
@@ -349,6 +395,7 @@ Agent(
   team_name: "devteam-$FEATURE",
   prompt: "Deploy image '$NEW_TAG' for feature '$FEATURE' to cluster.
     Workspace: $WORKSPACE
+    Run snapshot: $RUN_PATH
     [CONFIRMED: user approved deployment]
     Your task ID: $T_SHIP_ID"
 )
@@ -379,6 +426,7 @@ Agent(
   team_name: "devteam-$FEATURE",
   prompt: "Verify deployment for feature '$FEATURE'. Run smoke checks and benchmarks.
     Workspace: $WORKSPACE
+    Run snapshot: $RUN_PATH
     Your task ID: $T_VERIFY_ID"
 )
 ```
@@ -425,6 +473,7 @@ Agent(
   prompt: "Analyze performance regression for '$FEATURE'.
     Regression report: <verifier_metrics>
     Workspace: $WORKSPACE
+    Run snapshot: $RUN_PATH
     Your task ID: $OPT_TASK_ID"
 )
 ```

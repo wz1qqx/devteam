@@ -11,8 +11,8 @@ function readJson(relativePath) {
   return JSON.parse(fs.readFileSync(path.join(repoRoot, relativePath), 'utf8'));
 }
 
-function readText(relativePath) {
-  return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
+function exists(relativePath) {
+  return fs.existsSync(path.join(repoRoot, relativePath));
 }
 
 function testHookRegistryUsesDevteamEntrypoints() {
@@ -24,19 +24,15 @@ function testHookRegistryUsesDevteamEntrypoints() {
   assert.match(stopCommand, /hooks\/devteam-persistent\.js/);
 }
 
-function testLegacyWrappersPointToNewEntrypoints() {
-  const contextWrapper = readText('hooks/my-dev-context-monitor.js');
-  const persistentWrapper = readText('hooks/devflow-persistent.js');
-  const statuslineWrapper = readText('hooks/my-dev-statusline.js');
-
-  assert.match(contextWrapper, /require\('\.\/devteam-context-monitor\.js'\);/);
-  assert.match(persistentWrapper, /require\('\.\/devteam-persistent\.js'\);/);
-  assert.match(statuslineWrapper, /require\('\.\/devteam-statusline\.js'\)/);
+function testLegacyWrappersRemoved() {
+  assert.strictEqual(exists('hooks/my-dev-context-monitor.js'), false, 'hooks/my-dev-context-monitor.js should be removed');
+  assert.strictEqual(exists('hooks/devflow-persistent.js'), false, 'hooks/devflow-persistent.js should be removed');
+  assert.strictEqual(exists('hooks/my-dev-statusline.js'), false, 'hooks/my-dev-statusline.js should be removed');
 }
 
 function main() {
   testHookRegistryUsesDevteamEntrypoints();
-  testLegacyWrappersPointToNewEntrypoints();
+  testLegacyWrappersRemoved();
   console.log('week4-hooks: ok');
 }
 

@@ -1,6 +1,6 @@
 ---
 name: devteam:pause
-description: Save session state for later resume — writes HANDOFF.json and updates STATE.md
+description: Save feature-scoped session state — writes HANDOFF.json and refreshes STATE.md
 allowed-tools:
   - Read
   - Write
@@ -9,7 +9,7 @@ allowed-tools:
   - Grep
 ---
 <objective>
-Capture the current session state into HANDOFF.json and STATE.md for zero-loss session handoff.
+Capture the current feature session into .dev/features/<feature>/HANDOFF.json, refresh feature STATE.md, and derive task progress from .dev/features/<feature>/tasks.json for zero-loss resume context.
 </objective>
 
 <execution_context>

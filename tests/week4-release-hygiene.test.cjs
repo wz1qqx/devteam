@@ -1,25 +1,37 @@
 'use strict';
 
 const assert = require('assert');
+const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { getRepoRoot } = require('../lib/version.cjs');
 
 const repoRoot = getRepoRoot();
 const LEGACY_PATTERN = /DEVFLOW_BIN|devflow|my-dev/;
-
-const ALLOWED_LEGACY_FILES = new Set([
+const SCAN_ROOTS = [
   'README.md',
-  'bin/setup.sh',
-  'hooks/devflow-persistent.js',
-  'hooks/my-dev-context-monitor.js',
-  'hooks/my-dev-statusline.js',
-  'hooks/devteam-context-monitor.js',
-  'hooks/devteam-persistent.js',
-]);
+  'NEXT_SESSION_PLAN.md',
+  'bin',
+  'hooks',
+  'skills',
+  'lib',
+  'commands/devteam',
+];
 
 function readText(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
+}
+
+function isTracked(relativePath) {
+  try {
+    execFileSync('git', ['ls-files', '--error-unmatch', relativePath], {
+      cwd: repoRoot,
+      stdio: 'ignore',
+    });
+    return true;
+  } catch (_) {
+    return false;
+  }
 }
 
 function listFiles(relativePath) {
@@ -35,62 +47,34 @@ function listFiles(relativePath) {
   return files;
 }
 
-function testLegacyTermsAreConfinedToCompatibilityFiles() {
-  const scanRoots = [
-    'README.md',
-    'bin',
-    'hooks',
-    'skills',
-    'lib',
-    'commands/devteam',
-  ];
-  const candidateFiles = scanRoots.flatMap(listFiles)
+function testLegacyTermsForbiddenInRuntimeDocsAndConfig() {
+  const candidateFiles = SCAN_ROOTS.flatMap(listFiles)
     .filter(file => file.endsWith('.md') || file.endsWith('.js') || file.endsWith('.cjs') || file.endsWith('.sh'));
+  if (isTracked('.claude/settings.local.json')) {
+    candidateFiles.push('.claude/settings.local.json');
+  }
 
   for (const relativePath of candidateFiles) {
     const content = readText(relativePath);
-    if (!LEGACY_PATTERN.test(content)) {
-      continue;
-    }
-    assert.ok(
-      ALLOWED_LEGACY_FILES.has(relativePath),
-      `Legacy naming should not appear in ${relativePath}`
-    );
+    assert.doesNotMatch(content, LEGACY_PATTERN, `Legacy naming should not appear in ${relativePath}`);
   }
 }
 
-function testSetupPrefersDevteamCacheAndLabelsFallbackAsLegacy() {
+function testSetupUsesDevteamPathsOnly() {
   const setup = readText('bin/setup.sh');
 
   assert.match(
     setup,
     /MARKETPLACE_BIN=\$\(ls ~\/\.claude\/plugins\/cache\/devteam\/devteam\/\*\/lib\/devteam\.cjs/
   );
-  assert.match(
-    setup,
-    /Legacy cache path from pre-rename installs/
-  );
-  assert.match(
-    setup,
-    /cache\/devflow\/devteam\/\*\/lib\/devteam\.cjs/
-  );
-  assert.match(
-    setup,
-    /\[WARN\]\[LEGACY\] ~\/\.claude\/my-dev symlink exists/
-  );
-}
-
-function testCompatibilityWrappersExplicitlyMarked() {
-  assert.match(readText('README.md'), /Backward-compat statusline wrapper/);
-  assert.match(readText('hooks/devflow-persistent.js'), /Backward-compat wrapper/);
-  assert.match(readText('hooks/my-dev-context-monitor.js'), /Backward-compat wrapper/);
-  assert.match(readText('hooks/my-dev-statusline.js'), /Backward-compat wrapper/);
+  assert.doesNotMatch(setup, /cache\/devflow\//);
+  assert.doesNotMatch(setup, /\.claude\/my-dev/);
+  assert.doesNotMatch(setup, /\.claude\/commands\/devflow/);
 }
 
 function main() {
-  testLegacyTermsAreConfinedToCompatibilityFiles();
-  testSetupPrefersDevteamCacheAndLabelsFallbackAsLegacy();
-  testCompatibilityWrappersExplicitlyMarked();
+  testLegacyTermsForbiddenInRuntimeDocsAndConfig();
+  testSetupUsesDevteamPathsOnly();
   console.log('week4-release-hygiene: ok');
 }
 

@@ -19,7 +19,7 @@ GROUP=$(echo "$INIT" | jq -r '.devlog.group // "unknown"')
 WORKSPACE_REPOS=$(echo "$INIT" | jq -c '.workspace_repos // {}')
 ```
 
-Gate: `TOPIC` must be non-empty. If missing, use active feature from `$INIT.feature.name`.
+Gate: `TOPIC` must be non-empty. If missing, use the currently selected feature from `$INIT.feature.name` when available; otherwise ask for a topic explicitly.
 
 **Wiki directory resolution** (handled by init.cjs):
 1. `$VAULT/wiki/` (vault-level unified wiki)

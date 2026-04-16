@@ -25,5 +25,5 @@ INIT=$(node "$DEVTEAM_BIN" init status)
 If `$INIT` contains `"feature": null` and `"available_features"`, prompt the user to select a feature with AskUserQuestion, then re-run: `INIT=$(node "$DEVTEAM_BIN" init status --feature $SELECTED)`
 
 **Step 2**: Execute:
-Parse $INIT JSON. Display: active feature, current phase, repos (commits ahead, uncommitted), cluster info, build history, team status if active. Format as dashboard table.
+Parse $INIT JSON. Display: selected feature if one is resolved, current phase, repos (commits ahead, uncommitted), cluster info, build history, team status if active. Format as dashboard table.
 </process>

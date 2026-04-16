@@ -21,6 +21,8 @@ INIT=$(node "$DEVTEAM_BIN" init team-code)
 WORKSPACE=$(echo "$INIT" | jq -r '.workspace')
 FEATURE=$(echo "$INIT" | jq -r '.feature.name')
 INVARIANTS=$(echo "$INIT" | jq -r '.invariants // {}')
+RUN_PATH=$(echo "$INIT" | jq -r '.run.path // empty')
+TASKS_PATH=$(echo "$INIT" | jq -r '.task_state.path')
 # Extract all repo worktree paths upfront for path validation
 REPOS=$(echo "$INIT" | jq -r '.repos | to_entries[] | .key')
 for REPO in $REPOS; do
@@ -29,9 +31,11 @@ done
 ```
 
 Load:
-1. `.dev/features/$FEATURE/plan.md` — the implementation plan (source of truth for all worktree paths)
+1. `$TASKS_PATH` — authoritative execution state
 2. `.dev/features/$FEATURE/spec.md` — for context
-3. `CLAUDE.md` — coding conventions (if exists in workspace root)
+3. `.dev/features/$FEATURE/plan.md` — human-readable task intent + scope
+4. `$RUN_PATH` — frozen runtime source of truth for repo/worktree identity
+5. `CLAUDE.md` — coding conventions (if exists in workspace root)
 </context>
 
 <constraints>
@@ -48,10 +52,10 @@ Load:
 
 <workflow>
 
-<step name="PARSE_PLAN">
-1. Read plan.md, extract waves and tasks
-2. Detect resume: skip tasks with `Status: done`
-3. Group remaining tasks by wave
+<step name="PARSE_TASK_STATE">
+1. Load `tasks.json` and group tasks by `wave`
+2. Resume behavior: skip only tasks with `status == completed`
+3. If `tasks.json` is missing, STOP and ask planner/orchestrator to regenerate it
 </step>
 
 <step name="EXECUTE_WAVES">
@@ -64,11 +68,16 @@ For each wave, for each task:
 4. Note base_ref compatibility requirements
 
 **VALIDATE_PATHS:**
-1. Verify every target file path is within the task's worktree (from plan.md `Worktree:` field)
-2. Cross-check against `$INIT.repos[repo].dev_worktree` — if plan path ≠ init path, STOP and report mismatch
-3. If `$INVARIANTS.source_restriction == "dev_worktree_only"`: reject any path outside a registered dev_worktree
+1. Resolve the task's target repo from `tasks.json`, then map to `$INIT.repos[repo].dev_worktree` (from run snapshot)
+2. Verify every target file path is under that resolved run-scoped dev_worktree
+3. Verify task `dev_worktree` matches run snapshot mapping; mismatch = STOP and report
+4. If `$INVARIANTS.source_restriction == "dev_worktree_only"`: reject any path outside a registered dev_worktree
 
 **IMPLEMENT:**
+0. Mark task running:
+```bash
+node "$DEVTEAM_BIN" tasks update --feature "$FEATURE" --id "$TASK_ID" --status in_progress
+```
 1. For modifications: use Edit tool for surgical edits, maintain style
 2. For new files: follow project file organization patterns
 3. For deletions: verify file not imported elsewhere
@@ -83,10 +92,12 @@ For each wave, for each task:
 
 **COMMIT:**
 ```bash
-DEV_WORKTREE=$(grep -m1 '^\*\*Worktree\*\*:' plan.md | sed 's/.*: *//')
+TASK_REPO="<repo-from-current-task>"
+DEV_WORKTREE=$(echo "$INIT" | jq -r ".repos[\"$TASK_REPO\"].dev_worktree")
 git -C $DEV_WORKTREE add <specific_files>   # only files from this task
 git -C $DEV_WORKTREE commit -m "feat($FEATURE): <task_title>"
 COMMIT_HASH=$(git -C $DEV_WORKTREE rev-parse --short HEAD)
+node "$DEVTEAM_BIN" tasks update --feature "$FEATURE" --id "$TASK_ID" --status completed --commit "$COMMIT_HASH"
 ```
 If commit fails (pre-commit hook), fix the issue and retry (never use --no-verify).
 </step>

@@ -16,6 +16,8 @@ pod readiness polling, and health checks.
 ```bash
 DEVTEAM_BIN=$(ls ~/.claude/plugins/cache/devteam/devteam/*/lib/devteam.cjs 2>/dev/null | head -1)
 INIT=$(node "$DEVTEAM_BIN" init team-deploy)
+FEATURE=$(echo "$INIT" | jq -r '.feature.name')
+RUN_PATH=$(echo "$INIT" | jq -r '.run.path // empty')
 CLUSTER_NAME=$(echo "$INIT" | jq -r '.cluster.name')
 NAMESPACE=$(echo "$INIT" | jq -r '.cluster.namespace')
 SSH=$(echo "$INIT" | jq -r '.cluster.ssh')
@@ -36,6 +38,7 @@ Receive image tag from orchestrator via task description or prompt context.
 - Production clusters (safety: prod): orchestrator confirms with user BEFORE spawning you — your prompt will contain [CONFIRMED]
 - Never deploy without a rollback target identified
 - Post-deploy hooks are non-blocking: warn on failure but do not abort
+- Runtime identity (feature/workspace/run) must come from `$RUN_PATH`
 - The orchestrator owns checkpoint and pipeline-state writes — do not update workflow state yourself
 </constraints>
 
@@ -78,6 +81,14 @@ If `safety == "prod"` and NO `[CONFIRMED]` in prompt:
 
 If `safety == "normal"`:
   Proceed directly (orchestrator already informed user).
+</step>
+
+<step name="PRE_DEPLOY_HOOKS">
+Run pre-deploy hooks through the shared runner before any kubectl mutations:
+```bash
+node "$DEVTEAM_BIN" hooks run --feature "$FEATURE" --phase pre_deploy
+```
+This is blocking by runner contract.
 </step>
 
 <step name="DEPLOY">
@@ -142,13 +153,11 @@ Report: health check time, first-request latency.
 </step>
 
 <step name="POST_DEPLOY">
-1. Execute `.hooks.post_deploy` from feature config.yaml (non-blocking — warn on failure, don't abort):
+1. Execute post-deploy hooks via unified CLI runner:
 ```bash
-POST_HOOK=$(echo "$INIT" | jq -r '.hooks.post_deploy // empty')
-if [ -n "$POST_HOOK" ]; then
-  $SSH "$POST_HOOK" || echo "[WARN] post_deploy hook failed"
-fi
+node "$DEVTEAM_BIN" hooks run --feature "$FEATURE" --phase post_deploy
 ```
+`post_deploy` is non-blocking by runner contract.
 </step>
 
 <step name="RETURN_RESULT">

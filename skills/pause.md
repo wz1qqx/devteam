@@ -1,7 +1,12 @@
 # Skill: pause
 
-<purpose>Save session state for zero-loss resume. Write HANDOFF.json, update STATE.md, sync feature context, prompt for knowledge sink. Nothing valuable should be lost between sessions.</purpose>
+<purpose>Save session state for zero-loss resume. Write feature-scoped HANDOFF.json, update feature STATE.md, sync context.md, prompt for knowledge sink. Nothing valuable should be lost between sessions.</purpose>
 <core_principle>Working memory is ephemeral -- anything worth keeping must be explicitly saved. HANDOFF.json captures precise position; STATE.md captures workflow position; context.md captures feature-scoped decisions and blockers. Knowledge worth persisting goes to the wiki.</core_principle>
+
+Runtime artifact precedence during pause:
+1. `tasks.json` is the authoritative task source.
+2. `RUN.json` is the authoritative execution identity source.
+3. `plan.md` is a human-readable view, not a machine state source.
 
 <process>
 <step name="INIT" priority="first">
@@ -24,11 +29,9 @@ Collect current session state from all sources.
 
 	1. **Read STATE.md** (if exists):
    ```bash
-   STATE_PATH="$WORKSPACE/.dev/STATE.md"
+   STATE_PATH="$WORKSPACE/.dev/features/$FEATURE/STATE.md"
    ```
-   Parse frontmatter: project, phase, current_feature, feature_stage, plan_progress
-
-2. **Detect active feature**: from STATE.md frontmatter or recent `.dev/features/` activity
+   Parse frontmatter: project, phase, feature_stage, plan_progress
 
 3. **Scan uncommitted files** across all dev worktrees (from `$INIT.repos`):
    ```bash
@@ -36,12 +39,14 @@ Collect current session state from all sources.
      while read DEV_WT; do git -C "$DEV_WT" status --porcelain; done
    ```
 
-4. **Parse plan progress** (if feature has a plan):
+4. **Load task progress from authoritative tasks.json**:
    ```bash
-   PLAN_PATH="$WORKSPACE/.dev/features/$FEATURE/plan.md"
-   # Count completed vs total tasks from checkbox markers
-   DONE=$(grep -c '^\- \[x\]' "$PLAN_PATH" 2>/dev/null || echo 0)
-   TOTAL=$(grep -c '^\- \[' "$PLAN_PATH" 2>/dev/null || echo 0)
+   TASK_SUMMARY=$(node "$DEVTEAM_BIN" tasks summary --feature "$FEATURE")
+   DONE=$(echo "$TASK_SUMMARY" | jq -r '.summary.completed_tasks')
+   TOTAL=$(echo "$TASK_SUMMARY" | jq -r '.summary.total_tasks')
+   TASK_STATE=$(node "$DEVTEAM_BIN" tasks get --feature "$FEATURE")
+   COMPLETED_TASKS=$(echo "$TASK_STATE" | jq -c '.task_state.tasks // [] | map(select(.status=="completed") | {id, title})')
+   REMAINING_TASKS=$(echo "$TASK_STATE" | jq -c '.task_state.tasks // [] | map(select(.status!="completed") | {id, title, status})')
    ```
 
 	5. **Collect decisions** made this session: scan feature `context.md` additions or in-memory decisions gathered during the session
@@ -53,10 +58,18 @@ Collect current session state from all sources.
    - If mid-review: "Address review feedback"
    - If mid-debug: "Continue investigating <topic>"
    - If between phases: "Start next phase: <phase>"
+
+8. **Capture run snapshot reference** (if present):
+   ```bash
+   RUN_STATE=$(node "$DEVTEAM_BIN" run get --feature "$FEATURE")
+   RUN_PATH=$(echo "$RUN_STATE" | jq -r '.run_path')
+   RUN_ID=$(echo "$RUN_STATE" | jq -r '.run.run_id // empty')
+   ```
+   Use this in `context_notes` so resume can correlate pending work with the frozen run identity.
 </step>
 
 <step name="WRITE_HANDOFF">
-Write HANDOFF.json with precise session state for zero-loss resume.
+Write feature-scoped HANDOFF.json with precise session state for zero-loss resume.
 
 ```bash
 mkdir -p "$WORKSPACE/.dev/features/$FEATURE"
@@ -72,8 +85,8 @@ Write `.dev/features/$FEATURE/HANDOFF.json`:
   "feature": "$FEATURE",
   "feature_stage": "<current stage: spec/plan/exec/review/etc>",
   "task_progress": { "current": <DONE>, "total": <TOTAL> },
-  "completed_tasks": ["<list of done task titles>"],
-  "remaining_tasks": ["<list of pending task titles>"],
+  "completed_tasks": [{"id": "<task-id>", "title": "<task-title>"}],
+  "remaining_tasks": [{"id": "<task-id>", "title": "<task-title>", "status": "<task-status>"}],
   "decisions_this_session": ["<decisions added during this session>"],
   "uncommitted_files": ["<paths with uncommitted changes>"],
   "next_action": "<specific first action for next session>",
@@ -81,7 +94,9 @@ Write `.dev/features/$FEATURE/HANDOFF.json`:
 }
 ```
 
-Note: `blockers` field removed from HANDOFF — active blockers are persisted in `context.md`.
+Notes:
+- `blockers` field removed from HANDOFF — active blockers are persisted in `context.md`.
+- `completed_tasks` / `remaining_tasks` must come from `tasks.json`, not `plan.md` checkbox parsing.
 
 Rules:
 - `next_action` must be specific and actionable, not vague
@@ -95,12 +110,11 @@ Update STATE.md with current position.
 If STATE.md does not exist, create from template:
 ```bash
 DEVTEAM_ROOT=$(dirname "$(dirname "$DEVTEAM_BIN")")
-TEMPLATE="$DEVTEAM_ROOT/templates/state.md"
+TEMPLATE="$DEVTEAM_ROOT/templates/STATE.md"
 ```
 
 Update frontmatter fields:
 - `last_activity`: current ISO-8601 timestamp
-- `current_feature`: active feature name or null
 - `feature_stage`: current stage or null
 - `plan_progress`: current progress string (e.g., "3/7 tasks")
 
@@ -146,7 +160,7 @@ Prompt user to persist valuable knowledge before ending session.
 Session paused successfully.
 
 HANDOFF.json written: .dev/features/$FEATURE/HANDOFF.json
-STATE.md updated: .dev/STATE.md
+STATE.md updated: .dev/features/$FEATURE/STATE.md
 ```
 
 Check for sinkable artifacts:
@@ -192,6 +206,7 @@ Session saved.
   HANDOFF: .dev/features/$FEATURE/HANDOFF.json
 
 Resume with: /devteam resume
+If multiple features exist, re-select: $FEATURE
 ```
 </step>
 </process>
@@ -206,7 +221,7 @@ Resume with: /devteam resume
 | "The code is self-explanatory" | Code shows WHAT. HANDOFF captures WHY and WHAT'S NEXT. |
 | "I'll just commit everything" | Uncommitted files may be intentional WIP. Document, don't force-commit. |
 | "Knowledge sink takes too long" | 30 seconds now saves 30 minutes of re-derivation later. |
-| "STATE.md is enough" | STATE.md is accumulated history. HANDOFF is precise position. Both needed. |
+| "STATE.md is enough" | STATE.md tracks workflow position. HANDOFF is precise position. Both needed. |
 | "I'll pause later" | Context window runs out without warning. Pause early, pause often. |
 
 ## Red Flags
@@ -220,13 +235,13 @@ Resume with: /devteam resume
 - Resolved blockers left in Active section instead of archived
 - Knowledge sink skipped entirely
 - No checkpoint recorded
-- Pausing without feature context (no active feature detected)
+- Pausing without a resolved feature context
 
 ## Verification Checklist
 
 - [ ] HANDOFF.json written with specific next_action, paused_at, and ttl_days
 - [ ] All uncommitted files documented
-- [ ] STATE.md frontmatter updated (timestamp, feature, stage, progress)
+- [ ] STATE.md frontmatter updated (timestamp, stage, progress)
 - [ ] STATE.md Position section reflects current state
 - [ ] context.md created/updated for current feature (decisions appended, resolved blockers archived)
 - [ ] Knowledge sink prompt shown to user

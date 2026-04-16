@@ -65,26 +65,21 @@ function resolveWorkspaceState(cwd) {
   const workspaceConfig = readYamlFile(path.join(root, 'workspace.yaml')) || {};
   const defaults = workspaceConfig.defaults || {};
   const configuredFeatures = Array.isArray(defaults.features) ? defaults.features : [];
-  const activeFeature = defaults.active_feature || (configuredFeatures.length === 1 ? configuredFeatures[0] : '');
+  const selectedFeature = configuredFeatures.length === 1 ? configuredFeatures[0] : '';
   const projectName = (workspaceConfig.devlog && workspaceConfig.devlog.group) || path.basename(root);
 
   let phase = '';
-  if (activeFeature) {
-    const featureConfig = readYamlFile(path.join(root, '.dev', 'features', activeFeature, 'config.yaml')) || {};
+  if (selectedFeature) {
+    const featureConfig = readYamlFile(path.join(root, '.dev', 'features', selectedFeature, 'config.yaml')) || {};
     phase = featureConfig.phase || '';
 
     if (!phase) {
-      const featureState = parseStateFrontmatter(path.join(root, '.dev', 'features', activeFeature, 'STATE.md'));
+      const featureState = parseStateFrontmatter(path.join(root, '.dev', 'features', selectedFeature, 'STATE.md'));
       phase = featureState.feature_stage || featureState.phase || '';
-    }
-
-    if (!phase) {
-      const globalState = parseStateFrontmatter(path.join(root, '.dev', 'STATE.md'));
-      phase = globalState.feature_stage || globalState.phase || '';
     }
   }
 
-  return { root, projectName, activeFeature, phase };
+  return { root, projectName, selectedFeature, phase };
 }
 
 function renderStatusline(data) {
@@ -101,7 +96,7 @@ function renderStatusline(data) {
   const workspaceState = resolveWorkspaceState(cwd);
   if (workspaceState) {
     parts.push(workspaceState.projectName);
-    if (workspaceState.activeFeature) parts.push(workspaceState.activeFeature);
+    if (workspaceState.selectedFeature) parts.push(workspaceState.selectedFeature);
     if (workspaceState.phase) parts.push(`[${workspaceState.phase}]`);
   }
 

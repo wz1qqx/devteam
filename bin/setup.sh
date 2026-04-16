@@ -22,20 +22,8 @@ echo ""
 
 # --- 1. Check marketplace installation ---
 MARKETPLACE_BIN=$(ls ~/.claude/plugins/cache/devteam/devteam/*/lib/devteam.cjs 2>/dev/null | head -1 || true)
-USING_LEGACY_CACHE=false
-if [ -z "$MARKETPLACE_BIN" ]; then
-  # Legacy cache path from pre-rename installs
-  MARKETPLACE_BIN=$(ls ~/.claude/plugins/cache/devflow/devteam/*/lib/devteam.cjs 2>/dev/null | head -1 || true)
-  if [ -n "$MARKETPLACE_BIN" ]; then
-    USING_LEGACY_CACHE=true
-  fi
-fi
 if [ -n "$MARKETPLACE_BIN" ]; then
   echo "[OK] Marketplace install detected: $(dirname "$(dirname "$MARKETPLACE_BIN")")"
-  if [ "$USING_LEGACY_CACHE" = true ]; then
-    echo "[WARN] Using legacy marketplace cache path (~/.claude/plugins/cache/devflow/...)."
-    echo "       Reinstalling plugin will migrate this path to ~/.claude/plugins/cache/devteam/..."
-  fi
 else
   echo "[INFO] No marketplace install found. For production use:"
   echo "       claude plugin marketplace add wz1qqx/devteam"
@@ -69,15 +57,6 @@ if [ -f "$CLI_ROOT/devteam.cjs" ]; then
 else
   echo "[ERROR] devteam.cjs not found at $CLI_ROOT/"
   exit 1
-fi
-
-# --- 4. Check for legacy symlinks ---
-echo ""
-LEGACY=false
-[ -L "$HOME/.claude/my-dev" ] && echo "[WARN][LEGACY] ~/.claude/my-dev symlink exists (can be removed)" && LEGACY=true
-[ -L "$HOME/.claude/commands/devflow" ] && echo "[WARN][LEGACY] ~/.claude/commands/devflow symlink exists (can be removed)" && LEGACY=true
-if [ "$LEGACY" = false ]; then
-  echo "[OK] No legacy symlinks found"
 fi
 
 echo ""
