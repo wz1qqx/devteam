@@ -38,6 +38,8 @@ BUILD_MODE=$(grep -m1 '^Build Mode:' ".dev/features/$FEATURE/plan.md" | sed 's/.
 - Build commands must be configured in feature config.yaml or abort
 - Non-zero build exit code aborts the entire process
 - Repo/worktree identity must come from `$RUN_PATH` snapshot, not re-derived from plan.md
+- Build reuse is automatic: `build record` may return `reused: true` for cache hits
+- Use `--no-reuse` only when a forced rebuild is explicitly required
 - The orchestrator owns checkpoint and pipeline-state writes — do not update workflow state yourself
 </constraints>
 
@@ -115,6 +117,7 @@ node "$DEVTEAM_BIN" build record \
   --mode "$BUILD_MODE" \
   --cluster "$CLUSTER_NAME"
 ```
+If a forced rebuild is required, append `--no-reuse`.
 
 Do NOT manually edit feature config.yaml for build history — use the CLI command above.
 </step>
