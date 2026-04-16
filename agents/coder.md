@@ -71,7 +71,12 @@ For each wave, for each task:
 1. Resolve the task's target repo from `tasks.json`, then map to `$INIT.repos[repo].dev_worktree` (from run snapshot)
 2. Verify every target file path is under that resolved run-scoped dev_worktree
 3. Verify task `dev_worktree` matches run snapshot mapping; mismatch = STOP and report
-4. If `$INVARIANTS.source_restriction == "dev_worktree_only"`: reject any path outside a registered dev_worktree
+4. If `$INVARIANTS.source_restriction == "dev_worktree_only"`, enforce with CLI (not prose only):
+```bash
+# Keep path writes machine-verifiable against RUN.json write scope.
+node "$DEVTEAM_BIN" run check-path --feature "$FEATURE" --path "<candidate_file_path>"
+```
+5. Any non-zero exit from `run check-path` is a hard STOP for that task; report denied path and reason
 
 **IMPLEMENT:**
 0. Mark task running:
