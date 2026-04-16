@@ -150,7 +150,7 @@ Load which pages? (e.g. "1 2", "all", or "none" to skip)
 Wait for user input. Load only selected pages.
 If no matching pages or wiki not configured: skip silently.
 
-**Check uncommitted files** across all dev worktrees (from `$INIT.repos`):
+**Check uncommitted files** across all dev worktrees (from `$INIT.repos`, which is RUN-frozen when `RUN.json` exists):
 ```bash
 echo "$INIT" | jq -r '.repos | to_entries[] | .value.dev_worktree // empty' | \
   while read DEV_WT; do

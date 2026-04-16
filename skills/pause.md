@@ -33,7 +33,7 @@ Collect current session state from all sources.
    ```
    Parse frontmatter: project, phase, feature_stage, plan_progress
 
-3. **Scan uncommitted files** across all dev worktrees (from `$INIT.repos`):
+3. **Scan uncommitted files** across all dev worktrees (from `$INIT.repos`, which is RUN-frozen when `RUN.json` exists):
    ```bash
    echo "$INIT" | jq -r '.repos | to_entries[] | .value.dev_worktree // empty' | \
      while read DEV_WT; do git -C "$DEV_WT" status --porcelain; done
