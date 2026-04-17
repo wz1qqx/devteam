@@ -7,6 +7,17 @@
 
 Multi-agent pipeline orchestration for Claude Code. One command launches a team of specialized AI agents that take a feature from spec to verified deployment — with configurable stages, checkpoint resume, and automatic feedback loops.
 
+## Release Snapshot (2026-04-17)
+
+devteam is now in a usable, release-ready state for mixed deployment workflows:
+
+- `bare_metal` is a first-class `ship.strategy` (not an ad-hoc side script path).
+- Build stage is strategy-aware via `ship.metal.build_mode` (`skip | sync_only | source_install | docker`).
+- Runtime safety is enforced at CLI boundaries (`run`, `pipeline`, `build record`) rather than prompt text only.
+- Docs and tests are aligned with the integrated run -> build -> ship -> verify contract.
+
+See [`RELEASE_NOTES.md`](RELEASE_NOTES.md) for the full release announcement.
+
 ## Why devteam
 
 Most AI coding tools operate as a single agent on a single file. Real projects need requirements gathering, multi-file implementation, code review, container builds, cluster deployments, and post-deploy verification. devteam orchestrates **8 specialized agents** through a **configurable pipeline** with built-in feedback loops:
@@ -49,8 +60,8 @@ Eight specialized agents, each spawned with `subagent_type: "devteam:<name>"` fo
 | **Planner** | Wave-grouped task plan with dependency graph, build mode detection | Read, Write, Bash, Glob, Grep | default |
 | **Coder** | TDD implementation, one atomic `git commit` per task | Read, Write, Edit, Bash, Grep, Glob | acceptEdits |
 | **Reviewer** | 5-axis review: correctness, readability, architecture, security, performance | Read, Bash, Grep, Glob | default (read-only) |
-| **Builder** | Pre-ship checklist, incremental Docker tag chain, registry push | Read, Write, Bash, Glob, Grep | default |
-| **Shipper** | GPU env check, namespace safety, kubectl deploy, health check | Read, Write, Bash, Glob, Grep | default |
+| **Builder** | Strategy-aware build stage: Docker build/push or bare-metal sync/install | Read, Write, Bash, Glob, Grep | default |
+| **Shipper** | Strategy-aware deploy stage: k8s rollout or bare-metal stop/sync/start + health | Read, Write, Bash, Glob, Grep | default |
 | **Verifier** | Smoke tests (3/3 required), 3x benchmarks with loop, metric comparison | Read, Write, Bash, Glob, Grep | default |
 | **vLLM-Opter** | Torch profiler + nsight kernel analysis, 9-category classification | Read, Write, Bash, Glob, Grep | default |
 
@@ -80,6 +91,7 @@ Options:
 - `--stages spec,plan,code,review,build,ship,verify` — select which stages to run (default: all)
 - `--max-loops N` — optimization loop iterations (default: 3)
 - `--skip-spec` — shorthand for removing spec from stages
+- `--build-mode skip|sync_only|source_install|docker` — override build behavior for current run
 
 ### Feature Management
 
@@ -145,7 +157,7 @@ User → /devteam team my-feature --stages code,review
   ├── [code]    Spawn devteam:coder    → atomic commits       → checkpoint "code"
   ├── [review]  Spawn devteam:reviewer → 5-axis review         → checkpoint "review"
   │               └── FAIL? → re-spawn devteam:coder (max 2 cycles)
-  ├── [build]   Spawn devteam:builder  → Docker build + push   → checkpoint "build"
+  ├── [build]   Spawn devteam:builder  → strategy-aware build path (docker/sync/install/skip)
   ├── [ship]    Guard: skip (not in stages)
   ├── [verify]  Guard: skip (not in stages)
   │
@@ -185,7 +197,7 @@ Restart should clear both pipeline checkpoint fields and the previous `RUN.json`
 
 ### Structured Stage Results
 
-Every stage agent now returns a human-readable report plus a final `STAGE_RESULT` JSON block. The orchestrator uses that structured payload, not free-form prose, to decide whether to checkpoint, retry, enter the review loop, or enter the optimization loop. The shared contract lives in [`skills/references/stage-result-contract.md`](/Users/ppio-dn-289/Documents/devteam/skills/references/stage-result-contract.md:1), and the reusable parser/helper lives in [lib/stage-result.cjs](/Users/ppio-dn-289/Documents/devteam/lib/stage-result.cjs:1).
+Every stage agent now returns a human-readable report plus a final `STAGE_RESULT` JSON block. The orchestrator uses that structured payload, not free-form prose, to decide whether to checkpoint, retry, enter the review loop, or enter the optimization loop. The shared contract lives in [`skills/references/stage-result-contract.md`](skills/references/stage-result-contract.md), and the reusable parser/helper lives in [`lib/stage-result.cjs`](lib/stage-result.cjs).
 
 Helper entrypoint:
 
@@ -227,8 +239,8 @@ devteam/
 │   ├── planner.md                 # Spec → wave-grouped plan.md
 │   ├── coder.md                   # Plan → atomic commits (acceptEdits)
 │   ├── reviewer.md                # Code → 5-axis review (read-only)
-│   ├── builder.md                 # Code → Docker image + push
-│   ├── shipper.md                 # Image → K8s deploy + health check
+│   ├── builder.md                 # Strategy-aware build stage (docker/sync/install/skip)
+│   ├── shipper.md                 # Strategy-aware ship stage (k8s or bare_metal)
 │   ├── verifier.md                # Deploy → smoke + 3x benchmarks
 │   └── vllm-opter.md              # FAIL → profiler analysis + guidance
 │
@@ -461,7 +473,7 @@ Blocking semantics are enforced by the runner:
 
 Learned hooks are not a separate execution path; `hooks.learned[]` entries are filtered by `trigger == <phase>` and run after the phase hook array in deterministic order.
 
-Statusline setup is separate from `hooks/hooks.json`. Use Claude Code's `statusLine` setting and the example in [templates/statusline-settings.json](/Users/ppio-dn-289/Documents/devteam/templates/statusline-settings.json:1).
+Statusline setup is separate from `hooks/hooks.json`. Use Claude Code's `statusLine` setting and the example in [`templates/statusline-settings.json`](templates/statusline-settings.json).
 
 ## Prerequisites
 
