@@ -68,7 +68,9 @@ function generateCommandMd(name, cmd) {
   const processLines = [];
   processLines.push('**Step 1**: Discover CLI tool and load config:');
   processLines.push('```bash');
-  processLines.push('DEVTEAM_BIN=$(ls ~/.claude/plugins/cache/devteam/devteam/*/lib/devteam.cjs 2>/dev/null | head -1)');
+  processLines.push('DEVTEAM_BIN="${HOME}/.claude/plugins/marketplaces/devteam/lib/devteam.cjs"');
+  processLines.push('[ -f "$DEVTEAM_BIN" ] || DEVTEAM_BIN=$(ls ~/.claude/plugins/cache/devteam/devteam/*/lib/devteam.cjs 2>/dev/null | head -1)');
+  processLines.push('[ -n "$DEVTEAM_BIN" ] || { echo "ERROR: devteam.cjs not found" >&2; exit 1; }');
   processLines.push(`INIT=$(node "$DEVTEAM_BIN" init ${initAs})`);
   processLines.push('```');
   processLines.push('');
@@ -77,9 +79,12 @@ function generateCommandMd(name, cmd) {
 
   if (skillPath) {
     processLines.push(`**Step 2**: Read the ${skillType} file and execute it end-to-end:`);
-    const globPattern = `~/.claude/plugins/cache/devteam/devteam/*/${skillPath}`;
+    const cacheGlobPattern = `~/.claude/plugins/cache/devteam/devteam/*/${skillPath}`;
+    const marketplaceSkillPath = `\${HOME}/.claude/plugins/marketplaces/devteam/${skillPath}`;
     processLines.push('```bash');
-    processLines.push(`SKILL_FILE=$(ls ${globPattern} 2>/dev/null | head -1)`);
+    processLines.push(`SKILL_FILE="${marketplaceSkillPath}"`);
+    processLines.push(`[ -f "$SKILL_FILE" ] || SKILL_FILE=$(ls ${cacheGlobPattern} 2>/dev/null | head -1)`);
+    processLines.push('[ -n "$SKILL_FILE" ] || { echo "ERROR: skill file not found" >&2; exit 1; }');
     processLines.push('```');
     processLines.push('Read `$SKILL_FILE` for the full process, then follow it step by step.');
   } else if (cmd['inline-process']) {

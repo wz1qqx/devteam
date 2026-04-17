@@ -16,7 +16,9 @@ On FAIL, your report must include enough structured data for the vLLM-Opter to d
 
 <context>
 ```bash
-DEVTEAM_BIN=$(ls ~/.claude/plugins/cache/devteam/devteam/*/lib/devteam.cjs 2>/dev/null | head -1)
+DEVTEAM_BIN="${HOME}/.claude/plugins/marketplaces/devteam/lib/devteam.cjs"
+[ -f "$DEVTEAM_BIN" ] || DEVTEAM_BIN=$(ls ~/.claude/plugins/cache/devteam/devteam/*/lib/devteam.cjs 2>/dev/null | head -1)
+[ -n "$DEVTEAM_BIN" ] || { echo "ERROR: devteam.cjs not found" >&2; exit 1; }
 INIT=$(node "$DEVTEAM_BIN" init team-verify)
 FEATURE=$(echo "$INIT" | jq -r '.feature.name')
 RUN_PATH=$(echo "$INIT" | jq -r '.run.path // empty')

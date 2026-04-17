@@ -283,7 +283,7 @@ cluster: <string>               # Override cluster for this feature
         nsys_path: <path>              # Override nsys binary path (optional, auto-detected)
 
     ship:
-      strategy: k8s                    # current implementation only supports k8s
+      strategy: k8s | bare_metal       # current implementation supports both strategies
       # ... existing build/deploy config fields
 
     build_history:                     # Last N entries (truncated by tuning.build_history_limit)

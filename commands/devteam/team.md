@@ -12,7 +12,7 @@ allowed-tools:
   - AskUserQuestion
 ---
 <objective>
-Start the automated pipeline for a feature. Select stages with --stages (default all). Supports checkpoint resume if interrupted, with a frozen `RUN.json` snapshot and explicit dirty-worktree gating before execution.
+Start the automated pipeline for a feature. Select stages with --stages (default all). Supports checkpoint resume if interrupted.
 </objective>
 
 <execution_context>
@@ -26,7 +26,9 @@ $ARGUMENTS
 <process>
 **Step 1**: Discover CLI tool and load config:
 ```bash
-DEVTEAM_BIN=$(ls ~/.claude/plugins/cache/devteam/devteam/*/lib/devteam.cjs 2>/dev/null | head -1)
+DEVTEAM_BIN="${HOME}/.claude/plugins/marketplaces/devteam/lib/devteam.cjs"
+[ -f "$DEVTEAM_BIN" ] || DEVTEAM_BIN=$(ls ~/.claude/plugins/cache/devteam/devteam/*/lib/devteam.cjs 2>/dev/null | head -1)
+[ -n "$DEVTEAM_BIN" ] || { echo "ERROR: devteam.cjs not found" >&2; exit 1; }
 INIT=$(node "$DEVTEAM_BIN" init team)
 ```
 
@@ -34,7 +36,9 @@ If `$INIT` contains `"feature": null` and `"available_features"`, prompt the use
 
 **Step 2**: Read the skill file and execute it end-to-end:
 ```bash
-SKILL_FILE=$(ls ~/.claude/plugins/cache/devteam/devteam/*/skills/orchestrator.md 2>/dev/null | head -1)
+SKILL_FILE="${HOME}/.claude/plugins/marketplaces/devteam/skills/orchestrator.md"
+[ -f "$SKILL_FILE" ] || SKILL_FILE=$(ls ~/.claude/plugins/cache/devteam/devteam/*/skills/orchestrator.md 2>/dev/null | head -1)
+[ -n "$SKILL_FILE" ] || { echo "ERROR: skill file not found" >&2; exit 1; }
 ```
 Read `$SKILL_FILE` for the full process, then follow it step by step.
 </process>
