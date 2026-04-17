@@ -83,6 +83,8 @@ function testOrchestratorConsumesStructuredStageResults() {
   assert.match(orchestrator, /--report-path "\$WORKSPACE\/\.dev\/features\/\$FEATURE\/review\.md"/);
   assert.match(orchestrator, /--report-path "\$WORKSPACE\/\.dev\/features\/\$FEATURE\/verify\.md"/);
   assert.match(orchestrator, /optimization-guidance\.md/);
+  assert.match(orchestrator, /bare_metal|bare metal/i);
+  assert.match(orchestrator, /SHIP_STRATEGY/);
 }
 
 function testFeatureArtifactStateIncludesVerifyAndOptimizationReports() {

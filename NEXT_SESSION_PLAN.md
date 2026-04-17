@@ -939,3 +939,482 @@ Then run full regression:
 ```bash
 for f in tests/*.test.cjs; do node "$f" || exit 1; done
 ```
+
+## Execution-Boundary Hardening Addendum (post week8)
+
+This addendum follows commits `dab8c1e`, `df1b7d8`, and `f881f09` which landed:
+
+- Slot conflict gate at `pipeline init` (with `--allow-slot-conflict` and `sharing_mode: shared` exemption)
+- `run check-path` for machine-enforceable `source_restriction: dev_worktree_only`
+- Structured `source_refs` in `build record` (auto-read from RUN, `--run-path` override)
+- `shared_with` removal from config normalization
+- week8 tests: `slot-conflict-gate`, `run-path-validation`, `build-source-provenance`
+
+All 37 tests (week1–week8) are green at handoff time.
+
+### Current Baseline (post week8)
+
+The execution boundary layer is now closed:
+
+| Boundary | CLI Enforcement | Tested |
+|---|---|---|
+| Frozen run identity | `run init/get/reset` | week6 |
+| Dirty worktree gate | `run init` dirty_policy | week6 |
+| Invalid identity gate | `pipeline init` ensureRunGate | week7 |
+| Slot conflict gate | `pipeline init` checkSlotConflicts | week8 |
+| Source restriction | `run check-path` | week8 |
+| Hook frozen scope | `hooks run` resolveHookRepos | week7 |
+| Build source provenance | `build record` source_refs | week8 |
+| Explicit feature routing | all runtime CLI calls | week7 |
+
+### What Is Still Missing
+
+1. **Orchestrator prompt does not describe week8 gates.** `orchestrator.md` INIT step only handles
+   `requires_dirty_decision`. It has no branches for `requires_execution_identity_fix` or slot
+   conflict errors from `pipeline init`.
+
+2. **No end-to-end pipeline chain test.** All 37 tests are single-step isolations. No test walks
+   `run init → pipeline init → orchestration resolve-stage → pipeline complete` as a linked chain.
+   A field-name regression could break the full flow while all unit tests pass.
+
+3. **pause/resume uncommitted-file scan references `$INIT.repos` instead of RUN.json repos.**
+   `lib/init.cjs` already prioritizes RUN.json for repo construction, so the runtime likely works
+   correctly. But `pause.md` L38 and `resume.md` L153-159 describe reading from `$INIT.repos`
+   without clarifying that these are already RUN-frozen. A regression test is needed to lock this.
+
+### Phase D: Sync Orchestrator And README With Week8 Gates
+
+#### Objective
+
+Make the orchestrator prompt and README accurately describe the execution boundaries that now exist in code.
+
+#### Concrete Tasks
+
+1. In `skills/orchestrator.md` INIT step, after the dirty-worktree gate block (L94-107),
+   add two new gate branches:
+
+   - If `RUN_INIT.requires_execution_identity_fix == true`:
+     Surface `RUN_INIT.invalid_execution_repos` to user. Hard stop.
+     No AskUserQuestion — this is not a user decision, it is an environment error.
+
+   - If `pipeline init` fails with slot conflict error:
+     Surface the conflicting feature name and dev worktree.
+     AskUserQuestion: retry with `--allow-slot-conflict`, wait for other pipeline, or cancel.
+
+2. In `skills/orchestrator.md` INIT step, add an "Execution identity rule" note after the
+   existing "Execution identity rule" on L110-111, referencing `run check-path` as the
+   mechanism coder uses for path validation.
+
+3. In `README.md`, add a brief "Execution Boundaries" subsection to the Architecture section,
+   listing the 8 CLI-enforced boundaries from the table above.
+
+4. Update `tests/week3-stage-result-contract.test.cjs` orchestrator assertions to verify:
+   - `orchestrator.md` contains `requires_execution_identity_fix`
+   - `orchestrator.md` contains `slot conflict` or `allow-slot-conflict`
+   - `orchestrator.md` contains `run check-path` or `check-path`
+
+#### Acceptance Criteria
+
+1. A new session reading `orchestrator.md` knows what to do when execution identity is invalid.
+2. A new session reading `orchestrator.md` knows what to do when a slot conflict is detected.
+3. Automated assertions prevent the orchestrator prompt from silently losing these gate descriptions.
+
+### Phase E: End-To-End Pipeline Chain Integration Tests
+
+#### Objective
+
+Verify that the CLI commands work as a linked chain, not just in isolation.
+
+#### Concrete Tasks
+
+New file: `tests/week9-pipeline-e2e.test.cjs`
+
+Cover at minimum these 6 scenarios:
+
+1. **Happy path lifecycle**:
+   `run init → pipeline init → pipeline complete`
+   Assert: STATE.md `feature_stage == completed`, RUN.json still exists.
+
+2. **Dirty gate → user decision → continue**:
+   `run init (dirty) → run init --restart --dirty-decision continue → pipeline init`
+   Assert: `dirty_policy.decision == continue`, pipeline init succeeds.
+
+3. **Slot conflict → rejection → override**:
+   feat-a `run init + pipeline init` → feat-b `run init → pipeline init` (fails with slot conflict)
+   → feat-b `pipeline init --allow-slot-conflict` (succeeds)
+
+4. **Build record consumes run provenance**:
+   `run init → build record`
+   Assert: `source_refs[0].repo` matches RUN repo, `run_id` matches.
+
+5. **Completed pipeline does not block subsequent feature on same slot**:
+   feat-a `run init + pipeline init + pipeline complete` → feat-b `run init + pipeline init`
+   Assert: feat-b pipeline init succeeds (feat-a is completed, not active).
+
+6. **resolve-stage end-to-end chain**:
+   `run init → pipeline init → orchestration resolve-stage (synthetic PASS STAGE_RESULT via stdin) → pipeline complete`
+   Assert: resolve-stage returns `decision == accept` with correct feature and stage.
+   Assert: pipeline complete succeeds after resolve-stage.
+   This scenario validates the orchestration interface contract in a linked context, not just parse/decide in isolation.
+
+#### Acceptance Criteria
+
+1. All 6 scenarios pass as a single test file.
+2. At least one scenario (scenario 6) exercises the full `run → pipeline → resolve-stage → complete` chain.
+3. No test depends on real git repos for scenarios that only need pipeline/state mechanics.
+   (Scenarios 1-5 can use non-git workspaces. Scenario 4 needs a git repo for `start_head`.)
+
+### Phase F: Freeze Pause/Resume Repo Scan To RUN Identity
+
+#### Objective
+
+Verify and lock the invariant that pause/resume uncommitted-file scanning uses RUN-frozen repos.
+
+#### Approach
+
+Test first, fix only if needed.
+
+`lib/init.cjs` already reads `RUN.json` via `readRunState` + `reposMapFromRun` + `attachRunReposMetadata`
+for team workflows. If the same path is active for `pause`/`resume` workflows, the runtime is already
+correct and only documentation alignment is needed.
+
+#### Concrete Tasks
+
+1. New file: `tests/week9-pause-resume-frozen-repos.test.cjs`
+   - Create workspace with RUN.json pointing to slot-a dev worktree
+   - Mutate feature config to point to slot-b after run init
+   - Call `init pause` (or `init resume`) via CLI
+   - Assert output `repos` still reference slot-a (from RUN), not slot-b (from live config)
+   - If assertion fails: fix `lib/init.cjs` so pause/resume workflows use RUN repos
+   - If assertion passes: update `skills/pause.md` and `skills/resume.md` to clarify that
+     `$INIT.repos` is already RUN-frozen, not live-config-derived
+
+2. If docs-only change needed:
+   - `pause.md` L38: change comment to clarify repos come from RUN snapshot
+   - `resume.md` L153-159: same clarification
+
+#### Acceptance Criteria
+
+1. Test locks the invariant: pause/resume repo scan matches RUN.json identity.
+2. Prompt text does not mislead a new session into thinking repos come from live config.
+
+### Execution Order
+
+```
+Phase D → Phase E → Phase F
+```
+
+D must precede E because E's scenario 6 validates orchestration contract text that D updates.
+F is independent but placed last because its blast radius is smallest.
+
+### Suggested Commit Split
+
+```
+docs: sync orchestrator and README with week8 execution boundaries     # Phase D
+test: add end-to-end pipeline chain integration tests                  # Phase E
+test/fix: freeze pause/resume repo scan to RUN identity                # Phase F
+```
+
+### Validation Commands
+
+```bash
+# Phase D
+node tests/week3-stage-result-contract.test.cjs
+
+# Phase E
+node tests/week9-pipeline-e2e.test.cjs
+
+# Phase F
+node tests/week9-pause-resume-frozen-repos.test.cjs
+
+# Full regression
+for f in tests/*.test.cjs; do node "$f" || exit 1; done
+```
+
+### Non-Negotiable Invariants (carried forward)
+
+All invariants from the original plan remain in force. Additionally:
+
+9. Slot conflict enforcement has exactly two exemption paths: `--allow-slot-conflict` flag or
+   `sharing_mode: shared` with both features in `owner_features`. No third implicit path.
+10. `run check-path` uses `realpathSync` for symlink-safe path normalization. No prefix-only matching.
+11. `source_refs` in build record are structured objects (`{repo, start_head, start_branch, dev_worktree}`),
+    not flattened strings. Legacy string format is accepted on read via `normalizeSourceRefList`.
+
+### Explicitly Deferred Work (carried forward + additions)
+
+1. True parallel multi-coder execution
+2. Additional ship strategies beyond `k8s`
+3. Replacing prompt-first orchestration entirely
+4. Large product-surface additions unrelated to reliability hardening
+5. Adding `run check-path` enforcement to reviewer/builder/shipper/verifier (low ROI — they don't write source files)
+6. Changing `collectActiveRuns` to include dirty-pending runs (current semantics are correct — dirty-pending has not started pipeline, does not occupy slot)
+7. ~~Workspace-level build cache / reuse model (original core problem #6)~~ → Scheduled as Phase K below.
+
+## Phase K: Implement Build Reuse Index (original core problem #6)
+
+### Objective
+
+Address the last remaining original core problem with a workspace-level index that allows
+deterministic reuse of previously built images when inputs are equivalent.
+
+This eliminates redundant Docker builds when multiple features share the same repo at the
+same SHA with the same build mode and parent chain.
+
+### Design Decisions (confirmed)
+
+1. **Reuse key**: `sha256(sorted(repos[].repo + repos[].start_head) + build_mode + parent_image)`.
+   Does NOT include `dev_worktree`, `cluster`, or `build_variant`.
+   Rationale: same code + same parent + same mode = same image. Paths and deploy targets are irrelevant.
+
+2. **Image verification**: default `docker manifest inspect` on cache hit.
+   Registry images may be lost to server restarts. Trust-but-verify is the only safe default.
+   No `--skip-verify` flag in v1; can be added later if latency is a real problem.
+
+3. **Git visibility**: `.dev/` should be git-tracked (enables build history traceability).
+   `build-index.json` is included in tracked state alongside `build-manifest.md`.
+
+4. **Reuse behavior**: default automatic. When index hits and image is verified, build is skipped
+   and a reuse marker is recorded. No opt-in flag needed. `--no-reuse` flag to force rebuild.
+
+### Index Schema
+
+Path: `.dev/build-index.json` (workspace-scoped, git-tracked)
+
+```json
+{
+  "version": "1.0",
+  "updated_at": "<ISO-8601>",
+  "entries": [
+    {
+      "reuse_key": "<sha256>",
+      "inputs": {
+        "source_refs": [
+          { "repo": "repo-a", "start_head": "abc123" }
+        ],
+        "build_mode": "full",
+        "parent_image": "registry.example.com/base:v3"
+      },
+      "result": {
+        "resulting_image": "registry.example.com/feat-a-image:v12",
+        "resulting_tag": "v12",
+        "run_id": "uuid",
+        "feature": "feat-a",
+        "recorded_at": "2026-04-16"
+      }
+    }
+  ]
+}
+```
+
+### Implementation Plan
+
+#### Step 1: `lib/build-index.cjs` — Index CRUD + hash
+
+New file. Functions:
+
+- `computeReuseKey(sourceRefs, buildMode, parentImage)` → sha256 hex string
+  - sourceRefs is `[{repo, start_head}]` sorted by repo name
+  - null/missing fields normalized to empty string before hashing
+- `readBuildIndex(root)` → parsed index object (or empty default if missing/corrupt)
+- `writeBuildIndex(root, index)` → write `.dev/build-index.json`
+- `lookupReuse(root, reuseKey)` → matching entry or null
+- `recordReuseEntry(root, reuseKey, inputs, result)` → append/update entry, write index
+
+#### Step 2: `lib/devteam.cjs` build record path — check before build
+
+In the `build` case of `devteam.cjs`:
+
+1. After computing `sourceRefs`, `parentImage`, and build mode, call `computeReuseKey`.
+2. Call `lookupReuse`. If hit:
+   - Run `docker manifest inspect <resulting_image>` via `execFileSync` (timeout 15s).
+   - If image exists: skip build, set `entry.note = "reused from <original_feature>@<original_tag>"`,
+     set `entry.reused = true`, record to build_history + manifest as usual, output includes `reused: true`.
+   - If image gone: treat as miss, fall through to normal build.
+3. If miss or `--no-reuse` flag: normal build path.
+4. After successful `build record` (miss path): call `recordReuseEntry` to write/update index.
+
+#### Step 3: `agents/builder.md` — Document reuse behavior
+
+Add to builder constraints:
+- Build may be skipped automatically if workspace build index has a verified cache hit.
+- Builder should check `build record` output for `reused: true` and report accordingly in STAGE_RESULT.
+- `--no-reuse` forces fresh build regardless of index.
+
+#### Step 4: Tests
+
+New file: `tests/week11-build-reuse-index.test.cjs`
+
+Scenarios:
+
+1. **Miss → build → index populated**: first build creates index entry with correct reuse_key.
+2. **Hit → reuse**: second `build record` with same inputs returns `reused: true`, tag matches previous.
+3. **Hit but image gone → fallback to build**: mock/simulate image unavailability (corrupt entry with nonexistent image).
+4. **Different SHA → miss**: change `start_head` in RUN, verify no reuse.
+5. **Different mode → miss**: same SHA but different `build_mode`, verify separate entries.
+6. **`--no-reuse` forces build**: even with valid index hit, fresh build is performed.
+7. **Cross-feature reuse**: feat-a builds, feat-b with same repo@SHA gets reuse.
+8. **Corrupt index → graceful degradation**: malformed JSON in build-index.json does not crash, falls through to build.
+
+#### Step 5: Clean up DevflowError alias
+
+In the same commit batch:
+- Remove `DevflowError` from `core.cjs` exports
+- Update `week1-core.test.cjs` to assert alias no longer exists
+
+### Acceptance Criteria
+
+1. Two features with identical repo SHAs and build mode produce only one Docker build.
+2. Registry image loss is detected and triggers rebuild automatically.
+3. Corrupt or missing index never crashes the pipeline.
+4. `--no-reuse` provides explicit override.
+5. Feature-local `build_history` still records every build/reuse for audit.
+6. `.dev/build-index.json` is git-trackable.
+7. `DevflowError` alias is removed from exports.
+
+### Suggested Commit Split
+
+```
+feat: implement workspace-level build reuse index        # Steps 1-4
+refactor: remove DevflowError backward compat alias      # Step 5
+```
+
+### Validation Commands
+
+```bash
+node tests/week11-build-reuse-index.test.cjs
+node tests/week1-core.test.cjs
+for f in tests/*.test.cjs; do node "$f" || exit 1; done
+```
+
+### Non-Negotiable Invariants (carried forward)
+
+All prior invariants (1-11) remain in force. Additionally:
+
+12. Build reuse is a read-only optimization; it never bypasses run identity, slot, or path gates.
+13. Reuse key does NOT include path or cluster; only `repo + start_head + build_mode + parent_image`.
+14. Missing or corrupt build-index.json degrades to normal build, never crashes.
+
+## Post-Phase-K Addendum: dev_worktree Removal And bare_metal Ship Strategy
+
+This addendum covers two changes made after Phase K completed.
+
+### Change 1: scope.dev_worktree Hard Removal
+
+**Context**: Phase H introduced deprecation warnings for `scope.<repo>.dev_worktree`. All three real
+workspaces (vllm-workspace, llmd-vllm-workspace, dynamo-vllm-workspace) were migrated to `dev_slot`.
+
+**What was done**:
+
+1. Migrated all three real workspaces to `dev_slot`:
+   - vllm-workspace: 1 shared slot (pd-opt), 2 features
+   - llmd-vllm-workspace: 7 slots across 4 repos, 3 features
+   - dynamo-vllm-workspace: 6 slots across 3 repos, 4 features with scope + 2 scopeless;
+     3 slots with `sharing_mode: shared` + `owner_features` (replacing old `shared_with`)
+
+2. Migrated all 16 test fixtures from `dev_worktree` to `dev_slot` (workspace.yaml gets `dev_slots`
+   definition, feature config switches to `dev_slot: <id>`)
+
+3. Hardened `lib/config.cjs`:
+   - `warnDeprecationOnce` replaced with `error()` for `dev_worktree` without `dev_slot`
+   - `dev_worktree` stripped from normalized scope output (destructured away alongside `shared_with`)
+   - `getFeatureRepos` dev worktree fallback path removed (only slot-derived worktree path remains)
+   - `warnDeprecationOnce` function and `DEPRECATION_WARNINGS` Set removed as dead code
+
+4. `tests/week10-dev-worktree-deprecation.test.cjs` updated: asserts error (not warning)
+
+5. `skills/references/schema.md` updated: "dev_worktree 已移除" replaces "仍兼容"
+
+**Note**: `dev_worktree` in `tasks.json` task objects is a different field (task schema, not scope)
+and remains unchanged.
+
+### Change 2: bare_metal Ship Strategy
+
+**Context**: Original plan deferred additional ship strategies beyond k8s. The bare_metal strategy
+was prioritized because it enables rapid source-deploy verification and A/B comparison experiments
+without Docker image builds, which is critical for dynamo + tensorrt-llm development workflows.
+
+**Design decisions** (confirmed with user):
+- Deploy method: rsync + SSH (reuses existing `run-dynamo-pd` skill's sync.sh / start.sh)
+- Environment: preset (user manages venv/deps via existing skill)
+- Multi-node: single node first
+- Lifecycle: deploy A → bench → deploy B → bench → compare (A/B workflow deferred to Phase 2)
+- Build mode: user-explicit via `build_mode` field (skip / sync_only / source_install / docker)
+
+**What was done**:
+
+1. `lib/config.cjs`:
+   - `SUPPORTED_SHIP_STRATEGIES` extended: `['k8s', 'bare_metal']`
+   - `normalizeShipMetal()` function: normalizes `ship.metal.*` fields
+   - `normalizeFeatureConfig` attaches `ship.strategy` and `ship.metal` to normalized output
+
+2. `lib/init.cjs`:
+   - `shipConfig` extracted from feature config
+   - Added to `team`, `team-build`, `team-deploy`, `team-verify` workflow outputs
+
+3. `agents/shipper.md`:
+   - Context loads `SHIP_STRATEGY` and `METAL_*` variables
+   - `STRATEGY_BRANCH` step: bare_metal skips k8s workflow
+   - `BARE_METAL_DEPLOY` step: stop → sync → start → health poll → first inference → log check
+
+4. `agents/verifier.md`:
+   - Context loads `SHIP_STRATEGY`, `METAL_HOST`, `METAL_SERVICE_URL`, `METAL_LOG_*`
+   - bare_metal overrides `SSH_HOST` and `SVC_URL`
+   - Log check branches: SSH grep (bare_metal) vs kubectl logs (k8s)
+
+5. `skills/orchestrator.md`:
+   - INIT loads `SHIP_STRATEGY`
+   - RUN_BUILD: bare metal build mode guard (skip/sync_only/source_install/docker)
+   - RUN_SHIP: strategy-aware behavior description
+
+6. `skills/references/schema.md`: full `ship.metal.*` field documentation
+
+7. Tests:
+   - `tests/week12-bare-metal-ship-strategy.test.cjs`: 8 scenarios
+   - `tests/week3-stage-result-contract.test.cjs`: orchestrator bare_metal/SHIP_STRATEGY assertions
+   - `tests/week3-ship-strategy.test.cjs`: error message assertion updated for new strategy set
+
+**ship.metal schema**:
+
+```yaml
+ship:
+  strategy: bare_metal
+  metal:
+    host: <ssh-alias>
+    venv: /opt/pd-venv
+    code_dir: /opt/dynamo
+    profile: <rapid-test-profile>
+    config: <start.sh-config>
+    sync_script: .dev/rapid-test/sync.sh
+    start_script: .dev/rapid-test/start.sh
+    setup_script: .dev/rapid-test/setup.sh    # optional
+    service_url: <host>:8000
+    log_paths:
+      decode: /tmp/dynamo-decode.log
+      prefill: /tmp/dynamo-prefill.log
+```
+
+### Deferred: A/B Comparison Flow
+
+The core value of bare_metal is running two versions on the same machine for fair comparison.
+This is deferred as Phase 2 because it requires:
+- Managing baseline code sync (which worktree/branch to deploy as baseline)
+- Orchestrator flow: deploy A → bench → deploy B → bench → generate comparison report
+- `--compare <baseline>` CLI argument parsing in orchestrator
+
+### Non-Negotiable Invariants (carried forward)
+
+All prior invariants (1-14) remain in force. Additionally:
+
+15. `scope.dev_worktree` is a hard error. All feature scopes must use `dev_slot`.
+16. `ship.strategy` accepts only `k8s` or `bare_metal`. Invalid strategies fail fast at config load.
+17. bare_metal shipper reuses user-provided scripts (sync.sh/start.sh). devteam does not own
+    remote environment management.
+
+### Explicitly Deferred Work (updated)
+
+1. True parallel multi-coder execution
+2. ~~Additional ship strategies beyond `k8s`~~ → bare_metal landed; further strategies (docker-compose, cloud run) still deferred
+3. Replacing prompt-first orchestration entirely
+4. A/B comparison flow for bare_metal (Phase 2)
+5. Multi-node bare_metal orchestration

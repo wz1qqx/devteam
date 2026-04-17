@@ -47,7 +47,11 @@ function createWorkspace({ features = ['feat-a'] } = {}) {
     'defaults:',
     '  features:',
     ...features.map(f => `    - ${f}`),
-    'repos: {}',
+    'repos:',
+    '  repo-a:',
+    '    dev_slots:',
+    '      default:',
+    '        worktree: repo-a-dev',
     'clusters: {}',
   ].join('\n') + '\n');
 
@@ -57,7 +61,7 @@ function createWorkspace({ features = ['feat-a'] } = {}) {
       'phase: build',
       'scope:',
       '  repo-a:',
-      '    dev_worktree: repo-a-dev',
+      '    dev_slot: default',
       'current_tag: null',
       'base_image: nvcr.io/base/model:1.0',
       'build:',

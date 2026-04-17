@@ -32,6 +32,10 @@ function createWorkspace(shipStrategy) {
       '    upstream: https://example.com/repo-a.git',
       '    baselines:',
       '      main: repo-a-base',
+      '    dev_slots:',
+      '      default:',
+      '        worktree: repo-a-dev',
+      '        baseline_id: main',
     ].join('\n') + '\n'
   );
   writeFile(
@@ -42,7 +46,7 @@ function createWorkspace(shipStrategy) {
       'scope:',
       '  repo-a:',
       '    base_ref: main',
-      '    dev_worktree: repo-a-dev',
+      '    dev_slot: default',
       'ship:',
       `  strategy: ${shipStrategy}`,
       'current_tag: null',
@@ -74,7 +78,7 @@ function testUnsupportedStrategyFailsFast() {
   assert.notStrictEqual(result.status, 0);
   assert.match(
     result.stderr,
-    /unsupported ship\.strategy 'docker'.*supports only: k8s/i
+    /unsupported ship\.strategy 'docker'.*supports only:/i
   );
 }
 

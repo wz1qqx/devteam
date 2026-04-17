@@ -76,7 +76,11 @@ function createConflictingWorkspace() {
     '  features:',
     '    - feat-a',
     '    - feat-b',
-    'repos: {}',
+    'repos:',
+    '  repo-shared:',
+    '    dev_slots:',
+    '      shared-dev:',
+    '        worktree: repo-shared-dev',
     'clusters: {}',
   ].join('\n') + '\n');
 
@@ -86,7 +90,7 @@ function createConflictingWorkspace() {
       'phase: build',
       'scope:',
       '  repo-shared:',
-      '    dev_worktree: repo-shared-dev',
+      '    dev_slot: shared-dev',
       'current_tag: null',
       'base_image: null',
     ].join('\n') + '\n');
@@ -152,7 +156,11 @@ function createSingleFeatureWorkspace() {
     'defaults:',
     '  features:',
     '    - feat-a',
-    'repos: {}',
+    'repos:',
+    '  repo-x:',
+    '    dev_slots:',
+    '      default:',
+    '        worktree: repo-dev',
     'clusters: {}',
   ].join('\n') + '\n');
 
@@ -161,7 +169,7 @@ function createSingleFeatureWorkspace() {
     'phase: build',
     'scope:',
     '  repo-x:',
-    '    dev_worktree: repo-dev',
+    '    dev_slot: default',
     'current_tag: null',
     'base_image: null',
   ].join('\n') + '\n');

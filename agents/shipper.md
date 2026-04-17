@@ -18,6 +18,9 @@ DEVTEAM_BIN=$(ls ~/.claude/plugins/cache/devteam/devteam/*/lib/devteam.cjs 2>/de
 INIT=$(node "$DEVTEAM_BIN" init team-deploy)
 FEATURE=$(echo "$INIT" | jq -r '.feature.name')
 RUN_PATH=$(echo "$INIT" | jq -r '.run.path // empty')
+WORKSPACE=$(echo "$INIT" | jq -r '.workspace')
+SHIP_STRATEGY=$(echo "$INIT" | jq -r '.ship.strategy // "k8s"')
+# k8s-specific
 CLUSTER_NAME=$(echo "$INIT" | jq -r '.cluster.name')
 NAMESPACE=$(echo "$INIT" | jq -r '.cluster.namespace')
 SSH=$(echo "$INIT" | jq -r '.cluster.ssh')
@@ -28,9 +31,18 @@ DEPLOY_POLL_INTERVAL=$(echo "$INIT" | jq -r '.tuning.deploy_poll_interval // 15'
 GPU_TYPE=$(echo "$INIT" | jq -r '.cluster.hardware.gpu // empty')
 MIN_DRIVER=$(echo "$INIT" | jq -r '.cluster.hardware.min_driver // empty')
 EXPECTED_TP=$(echo "$INIT" | jq -r '.cluster.hardware.expected_tp // 1')
+# bare_metal-specific
+METAL_HOST=$(echo "$INIT" | jq -r '.ship.metal.host // empty')
+METAL_PROFILE=$(echo "$INIT" | jq -r '.ship.metal.profile // empty')
+METAL_CONFIG=$(echo "$INIT" | jq -r '.ship.metal.config // empty')
+METAL_SYNC_SCRIPT=$(echo "$INIT" | jq -r '.ship.metal.sync_script // empty')
+METAL_START_SCRIPT=$(echo "$INIT" | jq -r '.ship.metal.start_script // empty')
+METAL_SERVICE_URL=$(echo "$INIT" | jq -r '.ship.metal.service_url // empty')
+METAL_LOG_DECODE=$(echo "$INIT" | jq -r '.ship.metal.log_paths.decode // "/tmp/dynamo-decode.log"')
+METAL_LOG_PREFILL=$(echo "$INIT" | jq -r '.ship.metal.log_paths.prefill // "/tmp/dynamo-prefill.log"')
 ```
 
-Receive image tag from orchestrator via task description or prompt context.
+Receive image tag from orchestrator via task description or prompt context (k8s only).
 </context>
 
 <constraints>
@@ -43,6 +55,11 @@ Receive image tag from orchestrator via task description or prompt context.
 </constraints>
 
 <workflow>
+
+<step name="STRATEGY_BRANCH">
+If `$SHIP_STRATEGY` is `bare_metal`, skip all k8s steps and jump to `BARE_METAL_DEPLOY`.
+Otherwise, continue with the k8s workflow below.
+</step>
 
 <step name="GPU_ENV_CHECK">
 Skip if `$GPU_TYPE` is empty or "none".
@@ -158,6 +175,62 @@ Report: health check time, first-request latency.
 node "$DEVTEAM_BIN" hooks run --feature "$FEATURE" --phase post_deploy
 ```
 `post_deploy` is non-blocking by runner contract.
+</step>
+
+<step name="BARE_METAL_DEPLOY">
+**Only entered when `$SHIP_STRATEGY == bare_metal`.**
+
+1. **Stop existing service** (if running):
+```bash
+if [ -n "$METAL_START_SCRIPT" ] && [ -n "$METAL_PROFILE" ]; then
+  cd "$WORKSPACE" && bash "$METAL_START_SCRIPT" "$METAL_PROFILE" stop 2>/dev/null || true
+  sleep 8
+fi
+```
+
+2. **Sync code** to remote machine:
+```bash
+if [ -n "$METAL_SYNC_SCRIPT" ] && [ -n "$METAL_PROFILE" ]; then
+  cd "$WORKSPACE" && bash "$METAL_SYNC_SCRIPT" "$METAL_PROFILE"
+fi
+```
+
+3. **Start service**:
+```bash
+cd "$WORKSPACE" && bash "$METAL_START_SCRIPT" "$METAL_PROFILE" "$METAL_CONFIG"
+```
+
+4. **Wait for readiness** — poll health endpoint:
+```bash
+if [ -n "$METAL_SERVICE_URL" ]; then
+  ELAPSED=0
+  while [ $ELAPSED -lt $DEPLOY_TIMEOUT ]; do
+    STATUS=$(curl -sf -o /dev/null -w '%{http_code}' "http://$METAL_SERVICE_URL/health" 2>/dev/null)
+    [ "$STATUS" = "200" ] && break
+    sleep $DEPLOY_POLL_INTERVAL; ELAPSED=$((ELAPSED + DEPLOY_POLL_INTERVAL))
+  done
+fi
+```
+
+5. **First inference request** — validate model is loaded and handshake works:
+```bash
+MODEL_NAME=$(echo "$INIT" | jq -r '.deploy.model_name // empty')
+if [ -n "$MODEL_NAME" ] && [ -n "$METAL_SERVICE_URL" ]; then
+  curl -sf "http://$METAL_SERVICE_URL/v1/chat/completions" \
+    -H 'Content-Type: application/json' \
+    -d "{\"model\":\"$MODEL_NAME\",\"messages\":[{\"role\":\"user\",\"content\":\"3+4=?\"}],\"max_tokens\":10,\"temperature\":0}"
+fi
+```
+
+6. **Log health check**:
+```bash
+ssh "$METAL_HOST" "grep -c 'ERROR\|Traceback' $METAL_LOG_DECODE 2>/dev/null || echo 0"
+ssh "$METAL_HOST" "grep 'handshake completed' $METAL_LOG_DECODE 2>/dev/null | tail -3"
+```
+
+Gate: health endpoint returns 200 and first inference succeeds. On failure, report which step failed.
+
+Then proceed to POST_DEPLOY and RETURN_RESULT.
 </step>
 
 <step name="RETURN_RESULT">

@@ -343,12 +343,12 @@ scope:
     base_ref: v1.0
 
 ship:
-  strategy: k8s                        # currently only k8s is implemented
+  strategy: k8s                        # k8s | bare_metal (see Strategy-Driven Shipping)
 ```
 
-Config loading is fail-fast: invalid `phase`, invalid `scope`, invalid workspace or feature config block types, unsupported `ship.strategy`, or a feature listed in `defaults.features` without a matching config file all stop CLI execution immediately.
+Config loading is fail-fast: invalid `phase`, invalid `scope`, invalid workspace or feature config block types, unsupported `ship.strategy`, scope-level `dev_worktree` (removed — use `dev_slot`), `ship.strategy: bare_metal` without a `ship.metal` block (or without `ship.metal.host`), invalid `ship.metal.build_mode`, or a feature listed in `defaults.features` without a matching config file all stop CLI execution immediately.
 It also normalizes missing `phase` to `spec`, missing `build_history` to `[]`, missing `ship`/`build`/`deploy`/`benchmark`/`verify` blocks to `{}`, missing `build_server`/`devlog`/`observability` to `{}`, missing `repos.<name>.remotes`/`baselines`/`dev_slots` and `clusters.<name>.hardware`/`network` to `{}`, and missing hook lists to empty arrays.
-Legacy `repos.<name>.upstream`, compact `baselines` (`ref: path`), and scope-level `dev_worktree` are still accepted for migration.
+Legacy `repos.<name>.upstream` and compact `baselines` (`ref: path`) are still accepted for migration. Scope-level `dev_worktree` is no longer accepted — features must reference a `dev_slot` defined under `repos.<repo>.dev_slots`.
 
 Feature selection: if only one feature exists it's auto-selected. If multiple exist, pass `--feature <name>` or let the skill prompt once and carry that selection through the current session.
 
@@ -379,10 +379,19 @@ The planner groups independent tasks into waves. The current executor consumes t
 
 ### Strategy-Driven Shipping
 
-`/devteam team` reads `ship.strategy` from feature config and currently supports only:
-- **k8s** — build + deploy to cluster → wait ready → health check
+`/devteam team` reads `ship.strategy` from feature config and supports:
+- **k8s** — build Docker image + `kubectl apply` to cluster → wait pods ready → health check
+- **bare_metal** — rsync source to remote machine + SSH start (no Docker build) → poll `/health` → first inference. Requires `ship.metal.host` + scripts (`sync_script`, `start_script`); reuses user-provided rapid-test scripts. Useful for rapid source-deploy verification and A/B comparison experiments without image builds.
 
-Any other strategy is rejected during config loading instead of silently falling into the k8s path.
+For `ship.strategy: bare_metal`, `ship.metal.build_mode` controls build-stage behavior:
+- `skip` — skip build stage entirely
+- `sync_only` — run sync script only (default when omitted)
+- `source_install` — run sync + setup script (e.g. remote editable/source install)
+- `docker` — keep normal Docker build path even for bare metal flows
+
+`/devteam team --build-mode <mode>` can temporarily override `ship.metal.build_mode` for a run.
+
+Any other strategy is rejected during config loading instead of silently falling back.
 
 ### Build Chain Fidelity
 

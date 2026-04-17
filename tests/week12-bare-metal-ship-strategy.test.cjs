@@ -22,7 +22,11 @@ function runCliError(cwd, args) {
   return spawnSync('node', [CLI, ...args], { cwd, encoding: 'utf8' });
 }
 
-function createBareMetalWorkspace() {
+function createBareMetalWorkspace(options = {}) {
+  const {
+    buildMode = 'source_install',
+    includeBuildMode = true,
+  } = options;
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-week12-bare-metal-'));
   writeFile(path.join(root, 'workspace.yaml'), [
     'schema_version: 2',
@@ -33,7 +37,7 @@ function createBareMetalWorkspace() {
     'repos: {}',
     'clusters: {}',
   ].join('\n') + '\n');
-  writeFile(path.join(root, '.dev', 'features', 'feat-metal', 'config.yaml'), [
+  const featureLines = [
     'description: bare metal test',
     'phase: ship',
     'scope: {}',
@@ -47,13 +51,15 @@ function createBareMetalWorkspace() {
     '    code_dir: /opt/dynamo',
     '    profile: test-lab',
     '    config: pp2tp1-decode-tp2',
+    ...(includeBuildMode ? [`    build_mode: ${buildMode}`] : []),
     '    sync_script: .dev/rapid-test/sync.sh',
     '    start_script: .dev/rapid-test/start.sh',
     '    service_url: 10.0.0.1:8000',
     '    log_paths:',
     '      decode: /tmp/dynamo-decode.log',
     '      prefill: /tmp/dynamo-prefill.log',
-  ].join('\n') + '\n');
+  ];
+  writeFile(path.join(root, '.dev', 'features', 'feat-metal', 'config.yaml'), featureLines.join('\n') + '\n');
   return root;
 }
 
@@ -92,11 +98,18 @@ function testBareMetalStrategyLoadsSuccessfully() {
   assert.strictEqual(feat.ship.metal.venv, '/opt/pd-venv');
   assert.strictEqual(feat.ship.metal.profile, 'test-lab');
   assert.strictEqual(feat.ship.metal.config, 'pp2tp1-decode-tp2');
+  assert.strictEqual(feat.ship.metal.build_mode, 'source_install');
   assert.strictEqual(feat.ship.metal.sync_script, '.dev/rapid-test/sync.sh');
   assert.strictEqual(feat.ship.metal.start_script, '.dev/rapid-test/start.sh');
   assert.strictEqual(feat.ship.metal.service_url, '10.0.0.1:8000');
   assert.strictEqual(feat.ship.metal.log_paths.decode, '/tmp/dynamo-decode.log');
   assert.strictEqual(feat.ship.metal.log_paths.prefill, '/tmp/dynamo-prefill.log');
+}
+
+function testBareMetalBuildModeDefaultsToSyncOnly() {
+  const root = createBareMetalWorkspace({ includeBuildMode: false });
+  const config = runCli(root, ['config', 'load']);
+  assert.strictEqual(config.features['feat-metal'].ship.metal.build_mode, 'sync_only');
 }
 
 function testK8sStrategyStillWorks() {
@@ -105,6 +118,13 @@ function testK8sStrategyStillWorks() {
   const feat = config.features['feat-k8s'];
   assert.strictEqual(feat.ship.strategy, 'k8s');
   assert.strictEqual(feat.ship.metal, null);
+}
+
+function testInvalidBareMetalBuildModeErrors() {
+  const root = createBareMetalWorkspace({ buildMode: 'fast_path' });
+  const result = runCliError(root, ['config', 'load']);
+  assert.notStrictEqual(result.status, 0);
+  assert.match(result.stderr, /ship\.metal\.build_mode.*invalid/i);
 }
 
 function testInvalidStrategyErrors() {
@@ -199,11 +219,14 @@ function testInitTeamBuildIncludesShipConfig() {
   const init = runCli(root, ['init', 'team-build', '--feature', 'feat-metal']);
   assert.ok(init.ship, 'init team-build must include ship');
   assert.strictEqual(init.ship.strategy, 'bare_metal');
+  assert.strictEqual(init.ship.metal.build_mode, 'source_install');
 }
 
 function main() {
   testBareMetalStrategyLoadsSuccessfully();
+  testBareMetalBuildModeDefaultsToSyncOnly();
   testK8sStrategyStillWorks();
+  testInvalidBareMetalBuildModeErrors();
   testInvalidStrategyErrors();
   testNoStrategyDefaultsToNull();
   testBareMetalWithoutMetalBlockErrors();

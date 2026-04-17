@@ -40,6 +40,8 @@ Parse from $ARGUMENTS:
   Valid stages: `spec,plan,code,review,build,ship,verify`
 - **--max-loops N**: max optimization iterations (default from tuning config)
 - **--skip-spec**: shorthand for removing `spec` from stages
+- **--build-mode MODE**: optional build override for this run
+  Valid modes: `skip`, `sync_only`, `source_install`, `docker`
 
 ```bash
 FEATURE="$1"
@@ -49,6 +51,7 @@ else
   INIT=$(node "$DEVTEAM_BIN" init team)
 fi
 WORKSPACE=$(echo "$INIT" | jq -r '.workspace')
+SHIP_STRATEGY=$(echo "$INIT" | jq -r '.ship.strategy // "k8s"')
 ```
 
 **Feature selection**: If `$INIT` has `feature: null` and `available_features` list, use AskUserQuestion
@@ -66,6 +69,28 @@ else:
   STAGES = ALL_STAGES
 ```
 Also build `STAGES_CSV` from `STAGES`.
+
+**Build mode resolution** (strategy-aware, deterministic precedence):
+1. `--build-mode <mode>` from orchestrator args (highest priority)
+2. `ship.metal.build_mode` from feature config (when strategy is bare_metal)
+3. Strategy default:
+   - `bare_metal` → `sync_only`
+   - `k8s` → `docker`
+
+```bash
+CONFIG_BUILD_MODE=$(echo "$INIT" | jq -r '.ship.metal.build_mode // empty')
+BUILD_MODE_OVERRIDE=""   # parsed from --build-mode
+
+if [ -n "$BUILD_MODE_OVERRIDE" ]; then
+  BUILD_MODE="$BUILD_MODE_OVERRIDE"
+elif [ -n "$CONFIG_BUILD_MODE" ]; then
+  BUILD_MODE="$CONFIG_BUILD_MODE"
+elif [ "$SHIP_STRATEGY" = "bare_metal" ]; then
+  BUILD_MODE="sync_only"
+else
+  BUILD_MODE="docker"
+fi
+```
 
 ```bash
 MAX_LOOPS=$(echo "$INIT" | jq -r '.tuning.max_optimization_loops // 3')
@@ -372,13 +397,25 @@ Branch on resolved decision:
 <step name="RUN_BUILD">
 **Guard: skip if "build" not in STAGES.**
 
+**Bare metal build mode guard**:
+Build stage behavior is selected by effective `$BUILD_MODE`:
+- `skip` → skip build stage entirely (resolve stage as accepted with summary: skipped by build mode)
+- `sync_only` → builder runs sync.sh only (no Docker build)
+- `source_install` → builder runs sync.sh + setup/install script
+- `docker` → normal Docker build path
+
+When `$SHIP_STRATEGY == "bare_metal"` and `$BUILD_MODE == "skip"`, do not spawn builder;
+resolve the stage immediately with a skipped summary and continue to ship.
+
 ```
 Agent(
   name: "builder",
   subagent_type: "devteam:builder",
   team_name: "devteam-$FEATURE",
-  prompt: "Build Docker image for feature '$FEATURE' in workspace $WORKSPACE.
+  prompt: "Run build stage for feature '$FEATURE' in workspace $WORKSPACE.
     Run snapshot: $RUN_PATH
+    Ship strategy: $SHIP_STRATEGY
+    Build mode: $BUILD_MODE
     Your task ID: $T_BUILD_ID"
 )
 ```
@@ -392,12 +429,13 @@ printf '%s' "$AGENT_MESSAGE" | node "$DEVTEAM_BIN" orchestration resolve-stage \
 ```
 
 Require:
-- image artifact with `tag`
-- build-manifest artifact path
+- For k8s: image artifact with `tag` + build-manifest artifact path
+- For bare_metal: sync confirmation artifact (build-manifest optional)
 
 Branch on resolved decision:
 - `accept`:
-  extract `$NEW_TAG` from the image artifact
+  For k8s: extract `$NEW_TAG` from the image artifact
+  For bare_metal: note sync/install completion
 - `retry`:
   AskUserQuestion for retry / abort
 - `needs_input`:
@@ -407,7 +445,11 @@ Branch on resolved decision:
 <step name="RUN_SHIP">
 **Guard: skip if "ship" not in STAGES.**
 
-1. Check cluster safety from `$INIT`:
+**Strategy-aware behavior**:
+- k8s: check cluster safety, then spawn shipper for kubectl deploy
+- bare_metal: shipper uses SSH to stop → sync → start → health check (no kubectl)
+
+1. Check cluster safety from `$INIT` (k8s only, skip for bare_metal):
    - `safety: prod` → AskUserQuestion to confirm before spawning shipper
    - User declines → abort gracefully
 

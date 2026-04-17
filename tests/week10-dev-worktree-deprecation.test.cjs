@@ -67,24 +67,24 @@ function createWorkspaceWithDevSlot() {
   return root;
 }
 
-function testWarnsWhenUsingLegacyScopeDevWorktree() {
+function testErrorsWhenUsingLegacyScopeDevWorktree() {
   const root = createWorkspaceWithLegacyDevWorktree();
   const raw = runCliRaw(root, ['config', 'load']);
-  assert.strictEqual(raw.status, 0);
-  assert.match(raw.stderr, /dev_worktree is deprecated/i);
-  assert.match(raw.stderr, /scope\.repo-a\.dev_slot/i);
+  assert.notStrictEqual(raw.status, 0);
+  assert.match(raw.stderr, /removed.*dev_worktree/i);
+  assert.match(raw.stderr, /dev_slot/i);
 }
 
-function testNoDeprecationWarningWhenUsingDevSlot() {
+function testNoErrorWhenUsingDevSlot() {
   const root = createWorkspaceWithDevSlot();
   const raw = runCliRaw(root, ['config', 'load']);
   assert.strictEqual(raw.status, 0);
-  assert.doesNotMatch(raw.stderr, /dev_worktree is deprecated/i);
+  assert.doesNotMatch(raw.stderr, /dev_worktree/i);
 }
 
 function main() {
-  testWarnsWhenUsingLegacyScopeDevWorktree();
-  testNoDeprecationWarningWhenUsingDevSlot();
+  testErrorsWhenUsingLegacyScopeDevWorktree();
+  testNoErrorWhenUsingDevSlot();
   console.log('week10-dev-worktree-deprecation: ok');
 }
 

@@ -47,7 +47,7 @@ clusters:
 # REPO 定义 (workspace 级，所有 feature 共享)
 # ═══════════════════════════════════════
 # 每个 repo 声明 remotes / baselines / dev_slots
-# Feature scope 优先引用 dev_slot（旧的 dev_worktree 仍兼容）
+# Feature scope 必须引用 dev_slot（dev_worktree 已移除，使用会报错）
 
 repos:
   <name>:
@@ -125,8 +125,7 @@ scope:                          # 涉及哪些 repo
   <repo-name>:
     dev_slot: <slot-id|null>    # Preferred: reference repos.<name>.dev_slots.<slot-id>
     base_ref: <tag|commit>      # Optional override; otherwise derived from slot baseline
-    # Legacy compatibility:
-    # dev_worktree: <dir|null>  # Deprecated: loader warns; migrate to dev_slot
+    # dev_worktree is removed. Use dev_slot instead.
     build_type: <string>        # Optional: e.g. "wheel"
 
 # 生命周期状态
@@ -187,6 +186,30 @@ cluster: <string>               # Override cluster for this feature
     #   DEVTEAM_RUN_PATH
     #   DEVTEAM_REPOS
     #   (plus per-repo DEVTEAM_REPO_<REPO>_{DEV_WORKTREE,BASE_WORKTREE,BASE_REF})
+
+    ship:
+      strategy: k8s | bare_metal     # Ship strategy. k8s uses kubectl, bare_metal uses SSH+rsync.
+      metal:                          # Required when strategy == bare_metal
+        host: <ssh-alias-or-user@host>    # SSH target
+        venv: <path>                      # Remote venv path (e.g. /opt/pd-venv)
+        code_dir: <path>                  # Remote source root (e.g. /opt/dynamo)
+        profile: <string>                 # rapid-test profile name (e.g. rtx5090-lab)
+        config: <string>                  # start.sh config name (e.g. pp2tp1-decode-tp2)
+        build_mode: <string>              # skip | sync_only | source_install | docker (default: sync_only)
+        sync_script: <relative-path>      # Local sync script (e.g. .dev/rapid-test/sync.sh)
+        start_script: <relative-path>     # Local start script (e.g. .dev/rapid-test/start.sh)
+        setup_script: <relative-path>     # Optional setup script
+        service_url: <host:port>          # Health/smoke endpoint
+        log_paths:                        # Optional remote log locations
+          decode: <path>
+          prefill: <path>
+      # When strategy == bare_metal:
+      # - build stage behavior is controlled by effective build_mode (orchestrator --build-mode overrides
+      #   ship.metal.build_mode):
+      #   skip (no build), sync_only (sync.sh only), source_install (sync + optional setup), docker
+      # - ship stage uses SSH: stop → sync → start → health poll
+      # - verify stage uses SSH for log checks instead of kubectl logs
+      # - k8s-specific fields (deploy.yaml_file, deploy.dgd_name, etc.) are ignored
 
     build:
       image_name: <string>          # Docker image name (defaults to feature name if omitted)

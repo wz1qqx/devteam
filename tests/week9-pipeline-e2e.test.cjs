@@ -84,7 +84,11 @@ function createDirtyWorkspace() {
     'defaults:',
     '  features:',
     '    - feat-a',
-    'repos: {}',
+    'repos:',
+    '  repo-a:',
+    '    dev_slots:',
+    '      default:',
+    '        worktree: repo-a-dev',
     'clusters: {}',
   ].join('\n') + '\n');
   writeFile(path.join(root, '.dev', 'features', 'feat-a', 'config.yaml'), [
@@ -92,7 +96,7 @@ function createDirtyWorkspace() {
     'phase: build',
     'scope:',
     '  repo-a:',
-    '    dev_worktree: repo-a-dev',
+    '    dev_slot: default',
     'current_tag: null',
     'base_image: null',
   ].join('\n') + '\n');
@@ -113,7 +117,11 @@ function createConflictingWorkspace() {
     '  features:',
     '    - feat-a',
     '    - feat-b',
-    'repos: {}',
+    'repos:',
+    '  repo-shared:',
+    '    dev_slots:',
+    '      shared-dev:',
+    '        worktree: repo-shared-dev',
     'clusters: {}',
   ].join('\n') + '\n');
 
@@ -123,7 +131,7 @@ function createConflictingWorkspace() {
       'phase: build',
       'scope:',
       '  repo-shared:',
-      '    dev_worktree: repo-shared-dev',
+      '    dev_slot: shared-dev',
       'current_tag: null',
       'base_image: null',
     ].join('\n') + '\n');
@@ -145,7 +153,11 @@ function createBuildWorkspace() {
     'defaults:',
     '  features:',
     '    - feat-a',
-    'repos: {}',
+    'repos:',
+    '  repo-a:',
+    '    dev_slots:',
+    '      default:',
+    '        worktree: repo-a-dev',
     'clusters: {}',
   ].join('\n') + '\n');
   writeFile(path.join(root, '.dev', 'features', 'feat-a', 'config.yaml'), [
@@ -153,7 +165,7 @@ function createBuildWorkspace() {
     'phase: build',
     'scope:',
     '  repo-a:',
-    '    dev_worktree: repo-a-dev',
+    '    dev_slot: default',
     'current_tag: null',
     'base_image: nvcr.io/base/model:1.0',
     'build:',

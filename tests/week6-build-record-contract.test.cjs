@@ -49,6 +49,10 @@ function createWorkspace() {
       '    upstream: git@example.com/repo-a.git',
       '    baselines:',
       '      main: repo-a-base',
+      '    dev_slots:',
+      '      default:',
+      '        worktree: repo-a-dev',
+      '        baseline_id: main',
       'clusters: {}',
     ].join('\n') + '\n'
   );
@@ -61,8 +65,7 @@ function createWorkspace() {
       'scope:',
       '  repo-a:',
       '    base_ref: main',
-      '    base_worktree: repo-a-base',
-      '    dev_worktree: repo-a-dev',
+      '    dev_slot: default',
       'current_tag: v1',
       'base_image: nvcr.io/base/model:2.0',
       'build:',

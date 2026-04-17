@@ -50,7 +50,11 @@ function createWorkspace() {
     'defaults:',
     '  features:',
     '    - feat-a',
-    'repos: {}',
+    'repos:',
+    '  repo-a:',
+    '    dev_slots:',
+    '      default:',
+    '        worktree: repo-a-dev',
     'clusters: {}',
   ].join('\n') + '\n');
 
@@ -59,7 +63,7 @@ function createWorkspace() {
     'phase: code',
     'scope:',
     '  repo-a:',
-    '    dev_worktree: repo-a-dev',
+    '    dev_slot: default',
     'current_tag: null',
     'base_image: null',
   ].join('\n') + '\n');

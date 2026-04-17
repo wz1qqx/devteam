@@ -87,7 +87,11 @@ function createWorkspace(features = ['feat-a']) {
     'defaults:',
     '  features:',
     ...features.map(name => `    - ${name}`),
-    'repos: {}',
+    'repos:',
+    '  repo-a:',
+    '    dev_slots:',
+    '      default:',
+    '        worktree: repo-a-dev',
     'clusters: {}',
   ].join('\n') + '\n');
 
@@ -97,7 +101,7 @@ function createWorkspace(features = ['feat-a']) {
       'phase: build',
       'scope:',
       '  repo-a:',
-      '    dev_worktree: repo-a-dev',
+      '    dev_slot: default',
       'current_tag: null',
       'base_image: nvcr.io/base/model:1.0',
       'build:',
@@ -221,6 +225,22 @@ function testCorruptIndexDegradesGracefully() {
   assert.ok(Array.isArray(parsed.entries));
 }
 
+function testIndexEntriesAreTrimmedToDefaultLimit() {
+  const { recordReuseEntry, DEFAULT_INDEX_LIMIT } = require('../lib/build-index.cjs');
+  const root = createWorkspace();
+
+  // Insert one more than the default limit, each with a unique key.
+  for (let i = 0; i < DEFAULT_INDEX_LIMIT + 5; i++) {
+    recordReuseEntry(root, `key-${i}`, { i }, { resulting_image: `img:${i}` });
+  }
+
+  const index = readIndex(root);
+  assert.strictEqual(index.entries.length, DEFAULT_INDEX_LIMIT);
+  // Newest (last inserted) must be at head; oldest must be evicted.
+  assert.strictEqual(index.entries[0].reuse_key, `key-${DEFAULT_INDEX_LIMIT + 4}`);
+  assert.ok(!index.entries.some(e => e.reuse_key === 'key-0'));
+}
+
 function main() {
   testMissThenIndexPopulated();
   testHitThenReuse();
@@ -230,6 +250,7 @@ function main() {
   testNoReuseFlagForcesBuild();
   testCrossFeatureReuse();
   testCorruptIndexDegradesGracefully();
+  testIndexEntriesAreTrimmedToDefaultLimit();
   console.log('week11-build-reuse-index: ok');
 }
 

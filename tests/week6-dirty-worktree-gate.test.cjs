@@ -51,6 +51,10 @@ function createWorkspace({ dirty = false } = {}) {
       '    upstream: https://example.com/repo-a.git',
       '    baselines:',
       '      main: repo-a-base',
+      '    dev_slots:',
+      '      default:',
+      '        worktree: repo-a-dev',
+      '        baseline_id: main',
       'clusters: {}',
     ].join('\n') + '\n'
   );
@@ -62,7 +66,7 @@ function createWorkspace({ dirty = false } = {}) {
       'scope:',
       '  repo-a:',
       '    base_ref: main',
-      '    dev_worktree: repo-a-dev',
+      '    dev_slot: default',
       'current_tag: null',
       'base_image: null',
     ].join('\n') + '\n'

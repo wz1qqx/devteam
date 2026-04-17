@@ -53,6 +53,14 @@ function createWorkspace() {
     '    upstream: https://example.com/repo-a.git',
     '    baselines:',
     '      main: repo-a-base',
+    '    dev_slots:',
+    '      default:',
+    '        worktree: repo-a-dev',
+    '        baseline_id: main',
+    '        sharing_mode: shared',
+    '        owner_features:',
+    '          - feat-a',
+    '          - feat-b',
   ].filter(Boolean).join('\n') + '\n';
 
   writeFile(path.join(root, 'workspace.yaml'), workspaceYaml);
@@ -64,7 +72,7 @@ function createWorkspace() {
       'scope:',
       '  repo-a:',
       '    base_ref: main',
-      '    dev_worktree: repo-a-dev',
+      '    dev_slot: default',
       'current_tag: null',
       'base_image: null',
     ].join('\n') + '\n'
@@ -77,7 +85,7 @@ function createWorkspace() {
       'scope:',
       '  repo-a:',
       '    base_ref: main',
-      '    dev_worktree: repo-a-dev',
+      '    dev_slot: default',
       'current_tag: null',
       'base_image: null',
     ].join('\n') + '\n'
@@ -194,7 +202,7 @@ function testStateUpdatePhaseAcceptsVerifyWhenFeatureSpecified() {
   assert.match(featureConfig, /^phase: verify$/m);
 }
 
-function testCoreErrorRenameMaintainsBackwardCompatibility() {
+function testDevflowErrorAliasRemoved() {
   const coreExports = require('../lib/core.cjs');
   assert.strictEqual(Object.prototype.hasOwnProperty.call(coreExports, 'DevflowError'), false);
   assert.throws(
@@ -211,7 +219,7 @@ function main() {
   testStateCommandsRequireFeatureSelectionForMultiFeatureWorkspace();
   testFeaturesSwitchSubcommandRemoved();
   testStateUpdatePhaseAcceptsVerifyWhenFeatureSpecified();
-  testCoreErrorRenameMaintainsBackwardCompatibility();
+  testDevflowErrorAliasRemoved();
   console.log('week1-core: ok');
 }
 
