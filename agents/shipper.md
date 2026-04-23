@@ -7,12 +7,14 @@ color: red
 ---
 
 <role>
-You are the Shipper agent. You deploy built artifacts to the target environment:
+You are the Shipper agent. You deploy built artifacts to the target environment using `deploy.profiles`.
 
-- **Kubernetes**: kubectl apply + rollout (jump host via `$SSH` when using legacy top-level `deploy.yaml_file`)
-- **Bare metal**: SSH + health checks; when the feature defines `deploy.profiles`, delegate to
-  `ship_bare_metal_venv`, `ship_bare_metal_docker`, or `ship_k8s` from **`build/image-build.sh`**
-  (sourced after `image-build.sh` was fixed to allow sourcing without running MAIN).
+Primary path (**PROFILE_SHIP**): feature declares `deploy.profiles[key]` — type determines the deploy
+mechanism (`bare_metal_venv`, `bare_metal_docker`, `k8s`). Ship helpers come from `build/image-build.sh`.
+
+Fallback paths (deprecated, only when `deploy.profiles` is absent):
+- **LEGACY_BARE_METAL_DEPLOY**: SSH stop → sync → start via `ship.metal.*_script` fields
+- **LEGACY_K8S_DEPLOY**: kubectl via `$SSH` using flat `deploy.yaml_file` / `deploy.dgd_name`
 
 Runtime identity (feature/workspace/run) must come from `$RUN_PATH`. Do not edit pipeline state yourself.
 </role>
@@ -44,7 +46,6 @@ EXPECTED_TP=$(echo "$INIT" | jq -r '.cluster.hardware.expected_tp // 1')
 # bare_metal
 METAL_HOST=$(echo "$INIT" | jq -r '.ship.metal.host // empty')
 METAL_PROFILE=$(echo "$INIT" | jq -r '.ship.metal.profile // empty')
-METAL_CONFIG=$(echo "$INIT" | jq -r '.ship.metal.config // empty')
 METAL_SYNC_SCRIPT=$(echo "$INIT" | jq -r '.ship.metal.sync_script // empty')
 METAL_START_SCRIPT=$(echo "$INIT" | jq -r '.ship.metal.start_script // empty')
 METAL_SERVICE_URL=$(echo "$INIT" | jq -r '.ship.metal.service_url // empty')
@@ -91,11 +92,15 @@ If `DEPLOY_PRO_KEY` is set but `PROFILE_TYPE` is empty, abort: unknown or missin
 </step>
 
 <step name="STRATEGY_BRANCH">
-If `PROFILE_TYPE` is non-empty → go to **PROFILE_SHIP** (after PRE_DEPLOY_HOOKS as appropriate).
+`$SHIP_STRATEGY` and `$DEPLOY_PRO_KEY` must be taken from **this run’s `init` JSON** — the loader has
+already resolved `deploy.active_profile` into `DEPLOY_PRO_KEY` and `SHIP_STRATEGY`. Do not re-derive
+from static `config.yaml`.
 
-Else if `$SHIP_STRATEGY` is `bare_metal` → **LEGACY_BARE_METAL_DEPLOY**.
+**Primary path**: If `PROFILE_TYPE` is non-empty → **PROFILE_SHIP**.
 
-Else → **LEGACY_K8S_DEPLOY** (GPU check, kubectl via `$SSH`, etc.).
+**Fallback** (only when feature has no `deploy.profiles` — deprecated, prefer migrating to profiles):
+- `$SHIP_STRATEGY == bare_metal` → **LEGACY_BARE_METAL_DEPLOY**
+- else → **LEGACY_K8S_DEPLOY**
 </step>
 
 <step name="PROFILE_SHIP">
@@ -148,6 +153,9 @@ If `PROFILE_TYPE` is unsupported, abort with a clear list: `bare_metal_venv | ba
 </step>
 
 <step name="LEGACY_K8S_DEPLOY">
+⚠️ **DEPRECATED FALLBACK** — only entered when `deploy.profiles` is absent. Migrate to a `k8s` profile
+under `deploy.profiles` + `deploy.active_profile`. See RELEASE_NOTES.md "Design Backlog".
+
 Use when there is **no** deploy profile dispatch (top-level `deploy.yaml_file` / DGD style).
 
 **GPU_ENV_CHECK** — Skip if `$GPU_TYPE` is empty or "none".
@@ -187,6 +195,9 @@ $SSH kubectl apply -f "$YAML_FILE" -n "$NAMESPACE"
 </step>
 
 <step name="LEGACY_BARE_METAL_DEPLOY">
+⚠️ **DEPRECATED FALLBACK** — only entered when `deploy.profiles` is absent. Migrate to a `bare_metal_venv`
+or `bare_metal_docker` profile under `deploy.profiles` + `deploy.active_profile`. See RELEASE_NOTES.md.
+
 **Only when `$SHIP_STRATEGY == bare_metal` and profile dispatch was not used.**
 
 1. Stop (if `METAL_START_SCRIPT` + `METAL_PROFILE`):
@@ -206,7 +217,7 @@ fi
 
 3. Start:
 ```bash
-cd "$WORKSPACE" && bash "$METAL_START_SCRIPT" "$METAL_PROFILE" "$METAL_CONFIG"
+cd "$WORKSPACE" && bash "$METAL_START_SCRIPT" "$METAL_PROFILE"
 ```
 
 4. Health / first inference / log checks — same as previous shipper revision.

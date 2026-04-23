@@ -99,6 +99,7 @@ function testBareMetalStrategyLoadsSuccessfully() {
   assert.strictEqual(feat.ship.metal.profile, 'test-lab');
   assert.strictEqual(feat.ship.metal.config, 'pp2tp1-decode-tp2');
   assert.strictEqual(feat.ship.metal.build_mode, 'source_install');
+  assert.strictEqual(feat.build.mode, 'source_install');
   assert.strictEqual(feat.ship.metal.sync_script, '.dev/rapid-test/sync.sh');
   assert.strictEqual(feat.ship.metal.start_script, '.dev/rapid-test/start.sh');
   assert.strictEqual(feat.ship.metal.service_url, '10.0.0.1:8000');
@@ -220,6 +221,7 @@ function testInitTeamBuildIncludesShipConfig() {
   assert.ok(init.ship, 'init team-build must include ship');
   assert.strictEqual(init.ship.strategy, 'bare_metal');
   assert.strictEqual(init.ship.metal.build_mode, 'source_install');
+  assert.strictEqual(init.build.mode, 'source_install');
 }
 
 function main() {

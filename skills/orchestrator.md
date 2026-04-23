@@ -44,9 +44,12 @@ Parse from $ARGUMENTS:
 - **--skip-spec**: shorthand for removing `spec` from stages
 - **--build-mode MODE**: optional build override for this run
   Valid modes: `skip`, `sync_only`, `source_install`, `docker`
+- **--ship-strategy** `k8s|bare_metal` and **--deploy-profile** `<key>`: optional; forward to `init team` so ship/deploy context matches this run (same precedence idea as `--build-mode` — CLI wins over feature file for that run).
 
 ```bash
 FEATURE="$1"
+# Example: pass ship overrides through init (orchestrator forwards these flags when present):
+#   INIT=$(node "$DEVTEAM_BIN" init team --feature "$FEATURE" --ship-strategy k8s --deploy-profile staging_k8s)
 if [ -n "$FEATURE" ]; then
   INIT=$(node "$DEVTEAM_BIN" init team --feature "$FEATURE")
 else
@@ -71,6 +74,8 @@ else:
   STAGES = ALL_STAGES
 ```
 Also build `STAGES_CSV` from `STAGES`.
+
+**Ship context resolution** (for this pipeline run): `init team` output is authoritative. If you pass `--ship-strategy` / `--deploy-profile` to `init`, they override the feature file for `ship` / `deploy` in the emitted JSON (see `init_overrides` in init output). Feature file + `deploy.active_profile` (loader) still define the default when overrides are omitted.
 
 **Build mode resolution** (deterministic precedence):
 1. `--build-mode <mode>` from orchestrator args (highest priority)

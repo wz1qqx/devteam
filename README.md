@@ -9,7 +9,7 @@ stage can be automated while still preserving strict execution boundaries.
 ## Release Snapshot (2026-04-17)
 
 - First-class `ship.strategy`: `k8s` and `bare_metal`
-- Strategy-aware build behavior via `ship.metal.build_mode` and `--build-mode`
+- Strategy-aware build behavior via top-level `build.mode` (legacy `ship.metal.build_mode` is mirrored from it) and `--build-mode`
 - Frozen execution identity with `RUN.json`
 - Slot conflict gate, dirty-worktree gate, and write-scope path gate
 - Structured stage handoff contract (`STAGE_RESULT`) for deterministic orchestration

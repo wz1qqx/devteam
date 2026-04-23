@@ -189,13 +189,18 @@ cluster: <string>               # Override cluster for this feature
 
     ship:
       strategy: k8s | bare_metal     # Ship strategy. k8s uses kubectl, bare_metal uses SSH+rsync.
+                                      # Auto-derived when deploy.active_profile is set (preferred).
+                                      # Explicit value conflicts with active_profile derivation → loader error.
       metal:                          # Required when strategy == bare_metal
         host: <ssh-alias-or-user@host>    # SSH target
         venv: <path>                      # Remote venv path (e.g. /opt/pd-venv)
         code_dir: <path>                  # Remote source root (e.g. /opt/dynamo)
         profile: <string>                 # rapid-test profile name (e.g. rtx5090-lab)
-        config: <string>                  # start.sh config name (e.g. pp2tp1-decode-tp2)
-        build_mode: <string>              # skip | sync_only | source_install | docker (default: sync_only)
+        # config: <removed>               # start.sh config is user-provided at runtime, not managed here
+        build_mode: <string>              # DEPRECATED for build stage — use top-level build.mode instead.
+                                           # If present, loader copies into build.mode when build.mode is absent,
+                                           # then mirrors back onto ship.metal.build_mode for bare_metal (single source: build.mode).
+                                           # Valid: skip | sync_only | source_install | docker (default sync_only via build.mode when bare_metal)
         sync_script: <relative-path>      # Local sync script (e.g. .dev/rapid-test/sync.sh)
         start_script: <relative-path>     # Local start script (e.g. .dev/rapid-test/start.sh)
         setup_script: <relative-path>     # Optional setup script
@@ -207,14 +212,17 @@ cluster: <string>               # Override cluster for this feature
           decode: <path>
           prefill: <path>
       # When strategy == bare_metal:
-      # - build stage behavior is controlled by effective build_mode (orchestrator --build-mode overrides
-      #   ship.metal.build_mode):
+      # - build stage behavior is controlled by effective build.mode (orchestrator --build-mode overrides
+      #   feature build.mode; do not use ship.metal.build_mode as the authority — it is legacy + mirrored):
       #   skip (no build), sync_only (sync.sh only), source_install (sync + optional setup), docker
       # - ship stage uses SSH: stop → sync → start → health poll
       # - verify stage uses SSH for log checks instead of kubectl logs
       # - k8s-specific fields (deploy.yaml_file, deploy.dgd_name, etc.) are ignored
 
     build:
+      mode: <string>                # Authoritative build-stage mode: skip | sync_only | source_install | docker
+                                     # (orchestrator --build-mode overrides this). For bare_metal, defaults to sync_only.
+                                     # Legacy ship.metal.build_mode is merged into mode when mode is omitted.
       recipe: <string>              # Optional: e.g. dynamo+vllm+pegaflow — when set, devteam:builder runs
                                      #   ./build/image-build.sh build ... --depth auto (workspace driver)
       image_tag: <string>           # Optional: docker image tag for pipeline (e.g. kimi-vllm-fe-v6).
@@ -227,6 +235,11 @@ cluster: <string>               # Override cluster for this feature
         <KEY>: <value>
 
     deploy:
+      active_profile: <string>    # PREFERRED: single-field switch — key in deploy.profiles. Loader derives
+                                     # ship.strategy and sets deploy.deploy_profile (k8s) or ship.metal.deploy_profile
+                                     # (bare_metal_venv | bare_metal_docker). Conflicts with an explicit ship.strategy → error.
+                                     # Future: shipper will make PROFILE_SHIP primary; LEGACY_*_DEPLOY paths will be
+                                     # demoted to fallback. See RELEASE_NOTES.md "Design Backlog".
       deploy_profile: <string>      # Optional: key into deploy.profiles (used when ship.strategy=k8s and
                                      #   top-level yaml_file is not used)
       profiles:                       # Optional: named deploy targets (bare_metal_venv | bare_metal_docker | k8s)
