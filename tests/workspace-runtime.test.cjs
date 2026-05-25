@@ -3343,12 +3343,24 @@ function testRemoteLoopRecordTestBlocksCrossTrackRun() {
 
 function testMaterializePlansLocalCloneFromSourcePath() {
   const newRoot = createStandardWorkspace();
+  const source = path.join(newRoot, 'repo-a-source');
+  initGitRepo(source);
 
   const plan = runCli(newRoot, ['ws', 'materialize', '--root', newRoot, '--set', 'feat-a']);
   assert.strictEqual(plan.applied, false);
   assert.strictEqual(plan.totals.clone, 1);
   assert.match(plan.entries[0].command, /git clone --no-hardlinks/);
   assert.match(plan.entries[0].command, /repo-a-dev/);
+  assert.deepStrictEqual(plan.entries[0].remotes.map(item => item.remote), ['origin']);
+  assert.strictEqual(plan.entries[0].remotes[0].url, 'https://example.com/repo-a.git');
+
+  const applied = runCli(newRoot, ['ws', 'materialize', '--root', newRoot, '--set', 'feat-a', '--apply']);
+  assert.strictEqual(applied.applied, true);
+  assert.strictEqual(applied.entries[0].action, 'cloned');
+  assert.strictEqual(
+    execFileSync('git', ['-C', path.join(newRoot, 'repo-a-dev'), 'remote', 'get-url', 'origin'], { encoding: 'utf8' }).trim(),
+    'https://example.com/repo-a.git',
+  );
 }
 
 function testSyncPlanBecomesSyncableWhenWorktreeExists() {
