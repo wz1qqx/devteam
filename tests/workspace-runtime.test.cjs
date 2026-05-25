@@ -10,8 +10,11 @@ const CLI = path.resolve(__dirname, '..', 'lib', 'devteam.cjs');
 const yaml = require('../lib/yaml.cjs');
 const {
   buildVllmRefreshCommand,
+  effectiveEnvProfile,
   remoteChecksForProfile,
 } = require('../lib/env-profile.cjs');
+const { buildRuntimeContext } = require('../lib/runtime-context.cjs');
+const { loadWorkspaceConfig } = require('../lib/workspace-config.cjs');
 
 function writeFile(filePath, content) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -101,7 +104,7 @@ function createStandardWorkspace(prefix = 'devteam-workspace-new-') {
     '    sync:',
     '      profile: build-server',
     '      remote_path: /remote/build/repo-a-dev',
-    'workspace_sets:',
+    'tracks:',
     '  feat-a:',
     '    description: Feature A',
     '    worktrees: ["repo_a__feat_a"]',
@@ -117,9 +120,23 @@ function createStandardWorkspace(prefix = 'devteam-workspace-new-') {
     '    ssh: "ssh root@cluster.example.com"',
     '    host: cluster.example.com',
     '    namespace: llm-test',
+    'environments:',
+    '  staging-cluster:',
+    '    kind: k8s_cluster',
+    '    entry_ssh: "ssh root@cluster.example.com"',
+    '    namespace_defaults: ["llm-test"]',
+    'capability_definitions:',
+    '  k8s-deploy:',
+    '    kind: DeploymentCapability',
+    '    maturity: draft',
+    '    environment_kind: k8s_cluster',
+    '    production_gate: true',
+    '    requires:',
+    '      facts: ["entry_ssh", "namespace", "image", "manifests", "service_health_check"]',
+    '    evidence_gate: ["deploy", "deploy-verify"]',
     'build_profiles:',
     '  feat-a:',
-    '    workspace_set: feat-a',
+    '    track: feat-a',
     '    env: build-server',
     '    command: bash scripts/build-image.sh --build-only',
     '    image: llm-d-cuda',
@@ -137,8 +154,20 @@ function createStandardWorkspace(prefix = 'devteam-workspace-new-') {
     '    commands:',
     '      env_check: ./scripts/check.sh',
     '      deploy: ./scripts/deploy.sh',
+    'deploy_instances:',
+    '  feat-a-preprod:',
+    '    track: feat-a',
+    '    capability: k8s-deploy',
+    '    environment: staging-cluster',
+    '    deploy_profile: staging',
+    '    deploy_flow: feat-a',
+    '    namespace: llm-test',
+    '    image: registry.example.com/library/llm-d-cuda:v1',
+    '    manifests: ["k8s/deploy.yaml"]',
+    '    service_health_check: ./scripts/check.sh',
+    '    maturity: draft',
     'defaults:',
-    '  workspace_set: feat-a',
+    '  track: feat-a',
     '  env: build-server',
     '  sync: build-server',
     '  build: feat-a',
@@ -184,14 +213,14 @@ function testWorkspaceStatusSurfacesPublishPlan() {
     '      remote: origin',
     '      branch: feature',
     '      status: local-only',
-    'workspace_sets:',
+    'tracks:',
     '  feature-a:',
     '    worktrees: ["repo_a__feature"]',
     'env_profiles:',
     '  local:',
     '    type: local',
     'defaults:',
-    '  workspace_set: feature-a',
+    '  track: feature-a',
     '  env: local',
   ].join('\n') + '\n');
 
@@ -200,6 +229,402 @@ function testWorkspaceStatusSurfacesPublishPlan() {
   assert.strictEqual(status.worktrees[0].publish.remote, 'origin');
   assert.strictEqual(status.worktrees[0].publish.branch, 'feature');
   assert.strictEqual(status.worktrees[0].publish.status, 'local-only');
+}
+
+function testWorkspaceConfigIncludesLaneFragments() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-config-lanes-'));
+  fs.mkdirSync(path.join(root, 'repo-a-dev'), { recursive: true });
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'includes:',
+    '  - ".devteam/lanes/*.yaml"',
+    'repos:',
+    '  repo-a:',
+    '    remote: https://example.com/repo-a.git',
+    'builders:',
+    '  image-builder:',
+    '    type: remote_docker',
+    'environments:',
+    '  remote-a:',
+    '    kind: ssh_host',
+    '    ssh: "ssh root@lane-a"',
+    '    source_root: /remote',
+    '    venv_root: /remote/venvs',
+    'capability_definitions:',
+    '  remote-vllm-venv:',
+    '    kind: ValidationCapability',
+    '    maturity: stable',
+    '    environment_kind: ssh_host',
+    '    source_mode: rsync-selected-files',
+    '    production_gate: false',
+    '    requires:',
+    '      facts: ["ssh", "source_root", "venv_root"]',
+    '    evidence_gate: ["sync", "test"]',
+    'defaults:',
+    '  track: lane-a',
+    '  env: lane-a-remote',
+    '  sync: lane-a-remote',
+    '  build: lane-a-image',
+    '  validation: lane-a-remote-venv',
+  ].join('\n') + '\n');
+  writeFile(path.join(root, '.devteam', 'lanes', 'lane-a.yaml'), [
+    'version: 2',
+    'worktrees:',
+    '  repo_a__lane_a:',
+    '    repo: repo-a',
+    '    path: repo-a-dev',
+    '    branch: lane-a',
+    '    sync:',
+    '      profile: lane-a-remote',
+    '      remote_path: /remote/lane-a/repo-a',
+    'tracks:',
+    '  lane-a:',
+    '    description: Lane A owns its worktree and validation bundle',
+    '    status: active',
+    '    policy: "Reuse this lane remote venv for features under lane-a."',
+    '    reference_tracks: ["base-lane"]',
+    '    worktrees: ["repo_a__lane_a"]',
+    '    env: lane-a-remote',
+    '    sync: lane-a-remote',
+    '    build: lane-a-image',
+    '    validation: lane-a-remote-venv',
+    'env_profiles:',
+    '  lane-a-remote:',
+    '    type: remote_dev',
+    '    ssh: "ssh root@lane-a"',
+    '    host: lane-a',
+    '    source_dir: /remote/lane-a/repo-a',
+    '    venv: /remote/venvs/lane-a',
+    'build_profiles:',
+    '  lane-a-image:',
+    '    track: lane-a',
+    '    builder: image-builder',
+    '    image: lane-a',
+    '    tag: test',
+    '    command: ./build.sh',
+    'validation_profiles:',
+    '  lane-a-remote-venv:',
+    '    track: lane-a',
+    '    env: lane-a-remote',
+    'validation_instances:',
+    '  lane-a-remote-venv:',
+    '    track: lane-a',
+    '    capability: remote-vllm-venv',
+    '    environment: remote-a',
+    '    current_profile: lane-a-remote',
+    '    source_dir: /remote/lane-a/repo-a',
+    '    venv: /remote/venvs/lane-a',
+  ].join('\n') + '\n');
+
+  const status = runCli(root, ['track', 'status', '--root', root, '--set', 'lane-a', '--no-runtime']);
+  assert.strictEqual(status.track.name, 'lane-a');
+  assert.strictEqual(status.track.env, 'lane-a-remote');
+  assert.strictEqual(status.track.build, 'lane-a-image');
+  assert.strictEqual(status.track.validation, 'lane-a-remote-venv');
+  assert.deepStrictEqual(status.track.features, {});
+  assert.strictEqual(status.defaults.track, 'lane-a');
+
+  const capabilities = runCli(root, ['capability', 'list', '--root', root]);
+  assert.deepStrictEqual(capabilities.capabilities.map(item => item.name), ['remote-vllm-venv']);
+  const plan = runCli(root, ['validate', 'plan', '--root', root, '--set', 'lane-a', '--method', 'remote-vllm-venv']);
+  assert.strictEqual(plan.instance, 'lane-a-remote-venv');
+  assert.strictEqual(plan.status, 'ready');
+  assert.deepStrictEqual(plan.missing, []);
+  assert.deepStrictEqual(plan.evidence_gate, ['sync', 'test']);
+  assert.match(plan.commands.doctor, /env doctor/);
+}
+
+function testFeatureReusesTrackEnvAndValidationProfiles() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-track-feature-lanes-'));
+  const source = path.join(root, 'repos', 'repo-a');
+  const featureA = path.join(root, 'worktrees', 'feature-a', 'repo-a');
+  const featureB = path.join(root, 'worktrees', 'feature-b', 'repo-a');
+
+  fs.mkdirSync(source, { recursive: true });
+  execFileSync('git', ['init'], { cwd: source, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: source });
+  execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: source });
+  execFileSync('git', ['checkout', '-b', 'base'], { cwd: source, stdio: ['ignore', 'ignore', 'ignore'] });
+  fs.mkdirSync(path.join(source, 'vllm'), { recursive: true });
+  writeFile(path.join(source, 'vllm', 'engine.py'), 'base\n');
+  execFileSync('git', ['add', '.'], { cwd: source });
+  execFileSync('git', ['commit', '-m', 'base'], { cwd: source, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['tag', 'base-v1'], { cwd: source });
+  execFileSync('git', ['worktree', 'add', '-b', 'feat/a', featureA, 'base'], {
+    cwd: source,
+    stdio: ['ignore', 'ignore', 'ignore'],
+  });
+  execFileSync('git', ['worktree', 'add', '-b', 'feat/b', featureB, 'base'], {
+    cwd: source,
+    stdio: ['ignore', 'ignore', 'ignore'],
+  });
+  writeFile(path.join(featureA, 'vllm', 'engine.py'), 'feature a\n');
+  execFileSync('git', ['add', '.'], { cwd: featureA });
+  execFileSync('git', ['commit', '-m', 'feat a'], { cwd: featureA, stdio: ['ignore', 'ignore', 'ignore'] });
+  writeFile(path.join(featureB, 'dirty.txt'), 'dirty b\n');
+
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees:',
+    '  repo_a__base:',
+    '    repo: repo-a',
+    '    path: repos/repo-a',
+    '    branch: base',
+    '    base_ref: base-v1',
+    '    sync:',
+    '      profile: remote-base',
+    '      remote_path: /remote/base/repo-a',
+    '      strategy: rsync-relative-patch-files',
+    '  repo_a__feat_a:',
+    '    repo: repo-a',
+    '    path: worktrees/feature-a/repo-a',
+    '    branch: feat/a',
+    '    base_ref: base-v1',
+    '    sync:',
+    '      profile: remote-base',
+    '      remote_path: /remote/features/feat-a/repo-a',
+    '      strategy: rsync-relative-patch-files',
+    '  repo_a__feat_b:',
+    '    repo: repo-a',
+    '    path: worktrees/feature-b/repo-a',
+    '    branch: feat/b',
+    '    base_ref: base-v1',
+    '    sync:',
+    '      profile: remote-base',
+    '      remote_path: /remote/features/feat-b/repo-a',
+    '      strategy: rsync-relative-patch-files',
+    'tracks:',
+    '  base-track:',
+    '    description: Shared integration base',
+    '    aliases: [base]',
+    '    worktrees: ["repo_a__base"]',
+    '    default_feat: feat-b',
+    '    env: remote-base',
+    '    sync: remote-base',
+    '    build: base-track-image',
+    '    deploy: preprod',
+    '    deploy_flow: base-track-preprod',
+    '    validation: base-track-remote-venv',
+    '    features:',
+    '      feat-a:',
+    '        aliases: [a]',
+    '        worktrees: ["repo_a__feat_a"]',
+    '      feat-b:',
+    '        aliases: [b]',
+    '        worktrees: ["repo_a__feat_b"]',
+    'env_profiles:',
+    '  remote-base:',
+    '    type: remote_dev',
+    '    ssh: "ssh root@remote"',
+    '    host: remote',
+    '    work_dir: /remote',
+    'builders:',
+    '  image-builder:',
+    '    type: remote_docker',
+    '    registry: registry.example.com/library',
+    'environments:',
+    '  remote-base-env:',
+    '    kind: ssh_host',
+    '    ssh: "ssh root@remote"',
+    '    source_root: /remote',
+    '    venv_root: /remote/venvs',
+    '  preprod-cluster:',
+    '    kind: k8s_cluster',
+    '    entry_ssh: "ssh root@cluster"',
+    'capability_definitions:',
+    '  remote-vllm-venv:',
+    '    kind: ValidationCapability',
+    '    environment_kind: ssh_host',
+    '    source_mode: rsync-selected-files',
+    '    requires:',
+    '      facts: ["ssh", "source_root", "venv_root"]',
+    '    evidence_gate: ["sync", "test"]',
+    '  k8s-deploy:',
+    '    kind: DeploymentCapability',
+    '    environment_kind: k8s_cluster',
+    '    requires:',
+    '      facts: ["entry_ssh", "namespace", "image", "manifests", "service_health_check"]',
+    '    evidence_gate: ["deploy", "deploy-verify"]',
+    'build_profiles:',
+    '  base-track-image:',
+    '    track: base-track',
+    '    builder: image-builder',
+    '    mode: tag_patch_image',
+    '    gates:',
+    '      require_remote_validation: false',
+    '      require_publish: false',
+    '    vllm:',
+    '      worktree: repo_a__base',
+    '      base_image: vllm/vllm-openai:base@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    '      patch:',
+    '        diff_base: base-v1',
+    '        include_paths: ["vllm/"]',
+    '    image:',
+    '      repository: repo-a',
+    '      tag_template: "{track}-{primary_short_sha}"',
+    '      primary_worktree: repo_a__base',
+    'deploy_profiles:',
+    '  preprod:',
+    '    type: k8s',
+    '    namespace: test',
+    'deploy_flows:',
+    '  base-track-preprod:',
+    '    track: base-track',
+    '    profile: preprod',
+    'validation_profiles:',
+    '  base-track-remote-venv:',
+    '    track: base-track',
+    '    env: remote-base',
+    'validation_instances:',
+    '  base-track-remote-venv:',
+    '    track: base-track',
+    '    feat: null',
+    '    capability: remote-vllm-venv',
+    '    environment: remote-base-env',
+    '    current_profile: remote-base',
+    '    source_dir: /remote/base/repo-a',
+    '    venv: /remote/venvs/base-track',
+    'deploy_instances:',
+    '  base-track-preprod:',
+    '    track: base-track',
+    '    feat: null',
+    '    capability: k8s-deploy',
+    '    environment: preprod-cluster',
+    '    deploy_profile: preprod',
+    '    deploy_flow: base-track-preprod',
+    '    namespace: test',
+    '    image: registry.example.com/library/repo-a:test',
+    '    manifests: ["k8s/deploy.yaml"]',
+    '    service_health_check: ./scripts/check.sh',
+    'defaults:',
+    '  track: base-track',
+    '  feat: feat-a',
+    '  env: remote-base',
+    '  sync: remote-base',
+  ].join('\n') + '\n');
+
+  const track = runCli(root, ['track', 'status', '--root', root, '--set', 'base-track', '--feat', 'a']);
+  assert.strictEqual(track.active_track, 'base-track');
+  assert.strictEqual(track.active_feat, 'feat-a');
+  assert.strictEqual(track.track.feat, 'feat-a');
+  assert.strictEqual(track.track.env, 'remote-base');
+  assert.strictEqual(track.track.sync, 'remote-base');
+  assert.strictEqual(track.track.build, 'base-track-image');
+  assert.strictEqual(track.track.deploy_flow, 'base-track-preprod');
+  assert.strictEqual(track.track.validation, 'base-track-remote-venv');
+  assert.strictEqual(track.track.runtime.workspace.worktrees, 1);
+  assert.strictEqual(track.track.runtime.dirty_worktrees.length, 0);
+
+  const workspace = runCli(root, ['ws', 'status', '--root', root, '--set', 'base-track', '--feat', 'a']);
+  assert.strictEqual(workspace.track, 'base-track');
+  assert.strictEqual(workspace.feat, 'feat-a');
+  assert.deepStrictEqual(workspace.worktrees.map(item => item.id), ['repo_a__feat_a']);
+  assert.strictEqual(workspace.worktrees[0].branch, 'feat/a');
+  assert.strictEqual(workspace.worktrees[0].commits_ahead, 1);
+
+  const defaultFeatureWorkspace = runCli(root, ['ws', 'status', '--root', root, '--set', 'base-track']);
+  assert.strictEqual(defaultFeatureWorkspace.feat, 'feat-a');
+  assert.deepStrictEqual(defaultFeatureWorkspace.worktrees.map(item => item.id), ['repo_a__feat_a']);
+
+  const envFeatureWorkspace = runCliWithEnv(root, ['ws', 'status', '--root', root, '--set', 'base-track'], {
+    DEVTEAM_FEAT: 'feat-b',
+  });
+  assert.strictEqual(envFeatureWorkspace.feat, 'feat-b');
+  assert.deepStrictEqual(envFeatureWorkspace.worktrees.map(item => item.id), ['repo_a__feat_b']);
+
+  const sync = runCli(root, ['sync', 'plan', '--root', root, '--set', 'base-track', '--feat', 'feat-a']);
+  assert.strictEqual(sync.profile, 'remote-base');
+  assert.strictEqual(sync.track, 'base-track');
+  assert.strictEqual(sync.feat, 'feat-a');
+  assert.deepStrictEqual(sync.entries.map(entry => entry.id), ['repo_a__feat_a']);
+  assert.strictEqual(sync.entries[0].remote_path, '/remote/features/feat-a/repo-a');
+  assert.deepStrictEqual(sync.entries[0].patch_files, ['vllm/engine.py']);
+
+  const sessionA = runCli(root, [
+    'session', 'start',
+    '--root', root,
+    '--set', 'base-track',
+    '--feat', 'feat-a',
+    '--id', 'run-feat-a',
+  ]);
+  assert.strictEqual(sessionA.track, 'base-track');
+  assert.strictEqual(sessionA.feat, 'feat-a');
+  assert.strictEqual(sessionA.workspace_set, 'base-track');
+  assert.strictEqual(sessionA.profiles.env, 'remote-base');
+  assert.strictEqual(sessionA.profiles.sync, 'remote-base');
+  assert.strictEqual(sessionA.profiles.build, 'base-track-image');
+  assert.strictEqual(sessionA.profiles.deploy, 'preprod');
+  const sessionStatusA = runCli(root, ['session', 'status', '--root', root, '--run', 'run-feat-a']);
+  assert.deepStrictEqual(sessionStatusA.worktrees.map(item => item.id), ['repo_a__feat_a']);
+
+  const sessionB = runCli(root, [
+    'session', 'start',
+    '--root', root,
+    '--set', 'base-track',
+    '--feat', 'feat-b',
+    '--id', 'run-feat-b',
+    '--no-build',
+    '--no-deploy',
+  ]);
+  assert.strictEqual(sessionB.track, 'base-track');
+  assert.strictEqual(sessionB.feat, 'feat-b');
+  const listA = runCli(root, ['session', 'list', '--root', root, '--set', 'base-track', '--feat', 'feat-a']);
+  assert.deepStrictEqual(listA.runs.map(run => run.run_id), ['run-feat-a']);
+  const listB = runCli(root, ['session', 'list', '--root', root, '--set', 'base-track', '--feat', 'feat-b']);
+  assert.deepStrictEqual(listB.runs.map(run => run.run_id), ['run-feat-b']);
+
+  const image = runCli(root, ['image', 'plan', '--root', root, '--set', 'base-track', '--feat', 'feat-a']);
+  assert.strictEqual(image.profile, 'base-track-image');
+  assert.strictEqual(image.track, 'base-track');
+  assert.strictEqual(image.feat, 'feat-a');
+  assert.strictEqual(image.workspace_set, 'base-track');
+  assert.strictEqual(image.vllm.worktree, 'repo_a__feat_a');
+  assert.strictEqual(image.vllm.patch.worktree, 'repo_a__feat_a');
+  assert.deepStrictEqual(image.source_heads.map(item => item.id), ['repo_a__feat_a']);
+  assert.deepStrictEqual(image.strategy.source_heads.map(item => item.id), ['repo_a__feat_a']);
+  assert.deepStrictEqual(image.strategy.materialize_inputs.vllm_overlay_files, ['vllm/engine.py']);
+  assert.match(image.image, /repo-a:base-track-/);
+
+  const deploy = runCli(root, ['deploy', 'plan', '--root', root, '--set', 'base-track', '--feat', 'feat-a']);
+  assert.strictEqual(deploy.profile, 'preprod');
+  assert.strictEqual(deploy.deploy_flow, 'base-track-preprod');
+  assert.strictEqual(deploy.track, 'base-track');
+  assert.strictEqual(deploy.feat, 'feat-a');
+  assert.strictEqual(deploy.instance, 'base-track-preprod');
+  assert.strictEqual(deploy.status, 'ready');
+
+  const validateList = runCli(root, ['validate', 'list', '--root', root, '--set', 'base-track', '--feat', 'feat-a']);
+  assert.deepStrictEqual(validateList.instances.map(item => item.name), ['base-track-remote-venv']);
+  const validatePlan = runCli(root, ['validate', 'plan', '--root', root, '--set', 'base-track', '--feat', 'feat-a']);
+  assert.strictEqual(validatePlan.instance, 'base-track-remote-venv');
+  assert.strictEqual(validatePlan.status, 'ready');
+
+  const featureBStatus = runCli(root, ['track', 'status', '--root', root, '--set', 'base-track', '--feat', 'feat-b']);
+  assert.strictEqual(featureBStatus.track.runtime.dirty_worktrees[0].id, 'repo_a__feat_b');
+
+  const context = runCli(root, ['workspace', 'context', '--root', root, '--set', 'base-track', '--feat', 'feat-a']);
+  assert.strictEqual(context.selected_track, 'base-track');
+  assert.strictEqual(context.selected_feat, 'feat-a');
+  assert.match(context.recommended_commands.status, /--feat "feat-a"/);
+
+  const presence = runCli(root, [
+    'presence', 'touch',
+    '--root', root,
+    '--set', 'base-track',
+    '--feat', 'feat-a',
+    '--session-id', 'feature-presence',
+  ]);
+  assert.strictEqual(presence.track, 'base-track');
+  assert.strictEqual(presence.feat, 'feat-a');
+  const presenceList = runCli(root, ['presence', 'list', '--root', root, '--set', 'base-track', '--feat', 'feat-a']);
+  assert.strictEqual(presenceList.totals.active, 1);
+  assert.strictEqual(presenceList.entries[0].feat, 'feat-a');
+  const presenceTrackB = runCli(root, ['track', 'status', '--root', root, '--set', 'base-track', '--feat', 'feat-b']);
+  assert.strictEqual(presenceTrackB.track.runtime.presence_count, 0);
+  const presenceTrackA = runCli(root, ['track', 'status', '--root', root, '--set', 'base-track', '--feat', 'feat-a']);
+  assert.strictEqual(presenceTrackA.track.runtime.presence_count, 1);
 }
 
 function testWorkspaceStatusIncludesDirtyFileSummary() {
@@ -213,14 +638,14 @@ function testWorkspaceStatusIncludesDirtyFileSummary() {
     '    repo: repo-a',
     '    path: repo-a-feature',
     '    branch: feature',
-    'workspace_sets:',
+    'tracks:',
     '  feature-a:',
     '    worktrees: ["repo_a__feature"]',
     'env_profiles:',
     '  local:',
     '    type: local',
     'defaults:',
-    '  workspace_set: feature-a',
+    '  track: feature-a',
     '  env: local',
     '  sync: local',
   ].join('\n') + '\n');
@@ -297,14 +722,14 @@ function testWorkspaceStatusIncludesDirtyFileSummary() {
     '    repo: repo-b',
     '    path: repo-b-feature',
     '    branch: feature',
-    'workspace_sets:',
+    'tracks:',
     '  feature-b:',
     '    worktrees: ["repo_b__feature"]',
     'env_profiles:',
     '  local:',
     '    type: local',
     'defaults:',
-    '  workspace_set: feature-b',
+    '  track: feature-b',
     '  env: local',
   ].join('\n') + '\n');
   fs.mkdirSync(repo2, { recursive: true });
@@ -337,14 +762,14 @@ function testWorkspacePublishPlanSurfacesPushCommands() {
     '      remote: origin',
     '      branch: feature',
     '      status: local-only',
-    'workspace_sets:',
+    'tracks:',
     '  feature-a:',
     '    worktrees: ["repo_a__feature"]',
     'env_profiles:',
     '  local:',
     '    type: local',
     'defaults:',
-    '  workspace_set: feature-a',
+    '  track: feature-a',
     '  env: local',
   ].join('\n') + '\n');
 
@@ -392,7 +817,7 @@ function testWorkspacePublishRequiresGateAndRecordsPush() {
     '    sync:',
     '      profile: local',
     '      remote_path: /tmp/remote/repo-a-feature',
-    'workspace_sets:',
+    'tracks:',
     '  feature-a:',
     '    worktrees: ["repo_a__feature"]',
     'env_profiles:',
@@ -400,7 +825,7 @@ function testWorkspacePublishRequiresGateAndRecordsPush() {
     '    type: local',
     '    work_dir: /tmp/remote',
     'defaults:',
-    '  workspace_set: feature-a',
+    '  track: feature-a',
     '  env: local',
     '  sync: local',
   ].join('\n') + '\n');
@@ -506,14 +931,14 @@ function testWorkspacePublishDetectsAlreadyPublishedRemoteAhead() {
     '      after_validation: true',
     '      remote: origin',
     '      branch: feature',
-    'workspace_sets:',
+    'tracks:',
     '  feature-a:',
     '    worktrees: ["repo_a__feature"]',
     'env_profiles:',
     '  local:',
     '    type: local',
     'defaults:',
-    '  workspace_set: feature-a',
+    '  track: feature-a',
     '  env: local',
   ].join('\n') + '\n');
 
@@ -561,14 +986,14 @@ function testSessionStatusPublishNextActionForAlreadyPublishedBranch() {
     '      after_validation: true',
     '      remote: origin',
     '      branch: feature',
-    'workspace_sets:',
+    'tracks:',
     '  feature-a:',
     '    worktrees: ["repo_a__feature"]',
     'env_profiles:',
     '  local:',
     '    type: local',
     'defaults:',
-    '  workspace_set: feature-a',
+    '  track: feature-a',
     '  env: local',
     '  sync: local',
   ].join('\n') + '\n');
@@ -641,14 +1066,14 @@ function testSessionStartSuggestsPublishPlanWhenNeeded() {
     '      after_validation: true',
     '      remote: origin',
     '      branch: feature',
-    'workspace_sets:',
+    'tracks:',
     '  feature-a:',
     '    worktrees: ["repo_a__feature"]',
     'env_profiles:',
     '  local:',
     '    type: local',
     'defaults:',
-    '  workspace_set: feature-a',
+    '  track: feature-a',
     '  env: local',
     '  sync: local',
   ].join('\n') + '\n');
@@ -688,7 +1113,7 @@ function testSessionStatusSummarizesEvidenceAndPublishPlan() {
     '    sync:',
     '      profile: local',
     '      remote_path: /tmp/remote/repo-a-feature',
-    'workspace_sets:',
+    'tracks:',
     '  feature-a:',
     '    worktrees: ["repo_a__feature"]',
     'env_profiles:',
@@ -696,7 +1121,7 @@ function testSessionStatusSummarizesEvidenceAndPublishPlan() {
     '    type: local',
     '    work_dir: /tmp/remote',
     'defaults:',
-    '  workspace_set: feature-a',
+    '  track: feature-a',
     '  env: local',
     '  sync: local',
   ].join('\n') + '\n');
@@ -794,7 +1219,7 @@ function testSessionStatusMarksEvidenceStaleWhenWorktreeHeadChanges() {
     '    sync:',
     '      profile: local',
     '      remote_path: /tmp/remote/repo-a-feature',
-    'workspace_sets:',
+    'tracks:',
     '  feature-a:',
     '    worktrees: ["repo_a__feature"]',
     'env_profiles:',
@@ -802,7 +1227,7 @@ function testSessionStatusMarksEvidenceStaleWhenWorktreeHeadChanges() {
     '    type: local',
     '    work_dir: /tmp/remote',
     'defaults:',
-    '  workspace_set: feature-a',
+    '  track: feature-a',
     '  env: local',
     '  sync: local',
   ].join('\n') + '\n');
@@ -868,7 +1293,7 @@ function testSessionListSummarizesRunHistoryAndFiltersByTrack() {
     'version: 2',
     `workspace: ${root}`,
     'worktrees: {}',
-    'workspace_sets:',
+    'tracks:',
     '  track-a:',
     '    worktrees: []',
     '  track-b:',
@@ -877,7 +1302,7 @@ function testSessionListSummarizesRunHistoryAndFiltersByTrack() {
     '  local:',
     '    type: local',
     'defaults:',
-    '  workspace_set: track-a',
+    '  track: track-a',
     '  env: local',
     '  sync: local',
   ].join('\n') + '\n');
@@ -988,11 +1413,11 @@ function testSessionListSummarizesRunHistoryAndFiltersByTrack() {
   assert.strictEqual(lint.status, 'failed');
   assert.ok(['run-a', 'run-b'].includes(lint.latest_run_id));
   assert.ok(lint.issues.some(issue => issue.kind === 'malformed_session_json' && issue.run_id === 'broken'));
-  assert.ok(lint.issues.some(issue => issue.kind === 'unknown_workspace_set' && issue.run_id === 'orphan'));
+  assert.ok(lint.issues.some(issue => issue.kind === 'unknown_track' && issue.run_id === 'orphan'));
 
   const lintText = runCliText(root, ['session', 'lint', '--root', root, '--text']);
   assert.match(lintText, /Latest readable run: run-[ab]/);
-  assert.match(lintText, /unknown_workspace_set/);
+  assert.match(lintText, /unknown_track/);
 
   const lintTrackA = runCli(root, ['session', 'lint', '--root', root, '--set', 'track-a']);
   assert.strictEqual(lintTrackA.latest_run_id, 'run-a');
@@ -1003,7 +1428,7 @@ function testSessionListSummarizesRunHistoryAndFiltersByTrack() {
   assert.strictEqual(archivePlan.totals.candidates, 2);
   assert.deepStrictEqual(archivePlan.candidates.map(item => item.run_id).sort(), ['broken', 'orphan']);
   assert.ok(archivePlan.candidates.find(item => item.run_id === 'broken').reasons.includes('malformed_session_json'));
-  assert.ok(archivePlan.candidates.find(item => item.run_id === 'orphan').reasons.includes('unknown_workspace_set'));
+  assert.ok(archivePlan.candidates.find(item => item.run_id === 'orphan').reasons.includes('unknown_track'));
 
   const archiveDryRun = runCli(root, ['session', 'archive', '--root', root]);
   assert.strictEqual(archiveDryRun.action, 'session_archive');
@@ -1040,14 +1465,14 @@ function testSessionLifecycleCanCloseStaleRunsOutOfActiveHistory() {
     '    sync:',
     '      profile: local',
     '      remote_path: /tmp/remote/repo-a-feature',
-    'workspace_sets:',
+    'tracks:',
     '  track-a:',
     '    worktrees: ["repo_a__feature"]',
     'env_profiles:',
     '  local:',
     '    type: local',
     'defaults:',
-    '  workspace_set: track-a',
+    '  track: track-a',
     '  env: local',
     '  sync: local',
   ].join('\n') + '\n');
@@ -1185,14 +1610,14 @@ function testSessionSupersedeStaleOnlyClosesOlderRuns() {
     '    sync:',
     '      profile: local',
     '      remote_path: /tmp/remote/repo-a-feature',
-    'workspace_sets:',
+    'tracks:',
     '  track-a:',
     '    worktrees: ["repo_a__feature"]',
     'env_profiles:',
     '  local:',
     '    type: local',
     'defaults:',
-    '  workspace_set: track-a',
+    '  track: track-a',
     '  env: local',
     '  sync: local',
   ].join('\n') + '\n');
@@ -1280,7 +1705,7 @@ function testTrackListStatusAndUseUpdatesDefaults() {
     '    branch: v0201',
     '    sync:',
     '      profile: remote-test-v0201',
-    'workspace_sets:',
+    'tracks:',
     '  old:',
     '    description: Old multi-repo track',
     '    worktrees: ["repo_a__old"]',
@@ -1296,7 +1721,7 @@ function testTrackListStatusAndUseUpdatesDefaults() {
     '    ssh: "ssh root@v0201"',
     'build_profiles:',
     '  old-image:',
-    '    workspace_set: old',
+    '    track: old',
     '    env: image-build',
     'deploy_profiles:',
     '  preprod:',
@@ -1306,13 +1731,13 @@ function testTrackListStatusAndUseUpdatesDefaults() {
     '    profile: preprod',
     'validation_profiles:',
     '  old-remote-venv:',
-    '    workspace_set: old',
+    '    track: old',
     '    env: remote-test-old',
     '  v0201-remote-venv:',
-    '    workspace_set: v0201',
+    '    track: v0201',
     '    env: remote-test-v0201',
     'defaults:',
-    '  workspace_set: old',
+    '  track: old',
     '  env: remote-test-old',
     '  sync: remote-test-old',
     '  build: old-image',
@@ -1368,7 +1793,7 @@ function testTrackListStatusAndUseUpdatesDefaults() {
     '    branch: tokenspeed',
     '    sync:',
     '      profile: remote-test-kimi-pd-pegaflow-v0201-tokenspeed',
-    'workspace_sets:',
+    'tracks:',
     '  kimi-pd-pegaflow-v0201:',
     '    description: v0201 canonical track',
     '    aliases: [v0201, 0201]',
@@ -1385,7 +1810,7 @@ function testTrackListStatusAndUseUpdatesDefaults() {
     '    type: remote_dev',
     '    ssh: "ssh root@tokenspeed"',
     'defaults:',
-    '  workspace_set: kimi-pd-pegaflow-v0201',
+    '  track: kimi-pd-pegaflow-v0201',
     '  env: remote-test-kimi-pd-pegaflow-v0201',
     '  sync: remote-test-kimi-pd-pegaflow-v0201',
   ].join('\n') + '\n');
@@ -1410,14 +1835,15 @@ function testTrackListStatusAndUseUpdatesDefaults() {
   assert.match(aliasBind.command, /kimi-pd-pegaflow-v0201-tokenspeed/);
 
   const aliasUse = runCli(aliasRoot, ['track', 'use', 'tokenspeed', '--root', aliasRoot, '--dry-run']);
-  assert.strictEqual(aliasUse.next_defaults.workspace_set, 'kimi-pd-pegaflow-v0201-tokenspeed');
+  assert.strictEqual(aliasUse.next_defaults.track, 'kimi-pd-pegaflow-v0201-tokenspeed');
+  assert.strictEqual(aliasUse.next_defaults.workspace_set, null);
 
   const lifecycleRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-track-life-'));
   writeFile(path.join(lifecycleRoot, '.devteam', 'config.yaml'), [
     'version: 2',
     `workspace: ${lifecycleRoot}`,
     'worktrees: {}',
-    'workspace_sets:',
+    'tracks:',
     '  active-track:',
     '    status: active',
     '    worktrees: []',
@@ -1434,7 +1860,7 @@ function testTrackListStatusAndUseUpdatesDefaults() {
     '  local:',
     '    type: local',
     'defaults:',
-    '  workspace_set: default-parked',
+    '  track: default-parked',
     '  env: local',
     '  sync: local',
   ].join('\n') + '\n');
@@ -1533,7 +1959,8 @@ function testTrackListStatusAndUseUpdatesDefaults() {
 
   const dryRun = runCli(root, ['track', 'use', 'v0201', '--root', root, '--dry-run']);
   assert.strictEqual(dryRun.dry_run, true);
-  assert.strictEqual(dryRun.next_defaults.workspace_set, 'v0201');
+  assert.strictEqual(dryRun.next_defaults.track, 'v0201');
+  assert.strictEqual(dryRun.next_defaults.workspace_set, null);
   assert.strictEqual(dryRun.next_defaults.build, null);
 
   const used = runCli(root, ['track', 'use', 'v0201', '--root', root]);
@@ -1549,6 +1976,7 @@ function testTrackListStatusAndUseUpdatesDefaults() {
   const status = runCli(root, ['track', 'status', '--root', root]);
   assert.strictEqual(status.active_track, 'v0201');
   assert.strictEqual(status.active_source, 'default');
+  assert.strictEqual(status.defaults.track, 'v0201');
   assert.strictEqual(status.defaults.workspace_set, 'v0201');
   assert.strictEqual(status.defaults.env, 'remote-test-v0201');
   assert.strictEqual(status.defaults.build, null);
@@ -1564,7 +1992,7 @@ function testTrackListStatusAndUseUpdatesDefaults() {
   assert.match(statusText, /node .* ws materialize .* --set "v0201"/);
 
   const text = fs.readFileSync(path.join(root, '.devteam', 'config.yaml'), 'utf8');
-  assert.match(text, /defaults:\n  workspace_set: "v0201"\n  env: "remote-test-v0201"\n  sync: "remote-test-v0201"\n  build: null\n  deploy: null\n  deploy_flow: null\n  validation: "v0201-remote-venv"/);
+  assert.match(text, /defaults:\n  track: "v0201"\n  feat: null\n  workspace_set: null\n  env: "remote-test-v0201"\n  sync: "remote-test-v0201"\n  build: null\n  deploy: null\n  deploy_flow: null\n  validation: "v0201-remote-venv"/);
 }
 
 function testRemoteLoopStartDoctorSyncRecordAndStatus() {
@@ -1582,7 +2010,7 @@ function testRemoteLoopStartDoctorSyncRecordAndStatus() {
     '      profile: remote-test-feature',
     '      remote_path: /tmp/remote/repo-a-feature',
     '      strategy: rsync-relative-patch-files',
-    'workspace_sets:',
+    'tracks:',
     '  feature-a:',
     '    worktrees: ["repo_a__feature"]',
     'env_profiles:',
@@ -1592,7 +2020,7 @@ function testRemoteLoopStartDoctorSyncRecordAndStatus() {
     '    host: local-shell',
     `    source_dir: "${repo}"`,
     'defaults:',
-    '  workspace_set: feature-a',
+    '  track: feature-a',
     '  env: remote-test-feature',
     '  sync: remote-test-feature',
   ].join('\n') + '\n');
@@ -1727,14 +2155,14 @@ function testRemoteLoopIgnoresClosedRunsWhenResolvingLatest() {
     'version: 2',
     `workspace: ${root}`,
     'worktrees: {}',
-    'workspace_sets:',
+    'tracks:',
     '  feature-a:',
     '    worktrees: []',
     'env_profiles:',
     '  remote-test-feature:',
     '    type: local',
     'defaults:',
-    '  workspace_set: feature-a',
+    '  track: feature-a',
     '  env: remote-test-feature',
     '  sync: remote-test-feature',
   ].join('\n') + '\n');
@@ -1783,14 +2211,14 @@ function testRemoteLoopPlanDoesNotReuseStaleRunForEvidenceWriters() {
     '    sync:',
     '      profile: remote-test-feature',
     '      remote_path: /tmp/remote/repo-a-feature',
-    'workspace_sets:',
+    'tracks:',
     '  feature-a:',
     '    worktrees: ["repo_a__feature"]',
     'env_profiles:',
     '  remote-test-feature:',
     '    type: local',
     'defaults:',
-    '  workspace_set: feature-a',
+    '  track: feature-a',
     '  env: remote-test-feature',
     '  sync: remote-test-feature',
   ].join('\n') + '\n');
@@ -1906,7 +2334,7 @@ function testSessionLocalTrackEnvKeepsWorkspaceDefaultUntouched() {
     '    branch: track-b',
     '    sync:',
     '      profile: remote-test-track-b',
-    'workspace_sets:',
+    'tracks:',
     '  track-a:',
     '    worktrees: ["repo_a__track_a"]',
     '  track-b:',
@@ -1920,13 +2348,13 @@ function testSessionLocalTrackEnvKeepsWorkspaceDefaultUntouched() {
     '    ssh: "ssh root@b"',
     'validation_profiles:',
     '  track-a-remote-venv:',
-    '    workspace_set: track-a',
+    '    track: track-a',
     '    env: remote-test-track-a',
     '  track-b-remote-venv:',
-    '    workspace_set: track-b',
+    '    track: track-b',
     '    env: remote-test-track-b',
     'defaults:',
-    '  workspace_set: track-a',
+    '  track: track-a',
     '  env: remote-test-track-a',
     '  sync: remote-test-track-a',
     '  validation: track-a-remote-venv',
@@ -1967,10 +2395,11 @@ function testSessionLocalTrackEnvKeepsWorkspaceDefaultUntouched() {
   const defaultStatus = runCli(root, ['track', 'status', '--root', root]);
   assert.strictEqual(defaultStatus.active_track, 'track-a');
   assert.strictEqual(defaultStatus.active_source, 'default');
+  assert.strictEqual(defaultStatus.defaults.track, 'track-a');
   assert.strictEqual(defaultStatus.defaults.workspace_set, 'track-a');
 
   const configText = fs.readFileSync(path.join(root, '.devteam', 'config.yaml'), 'utf8');
-  assert.match(configText, /defaults:\n  workspace_set: track-a\n  env: remote-test-track-a/);
+  assert.match(configText, /defaults:\n  track: track-a\n  env: remote-test-track-a/);
 
   const text = runCliTextWithEnv(root, ['track', 'status', '--root', root, '--text'], {
     DEVTEAM_TRACK: 'track-b',
@@ -1985,7 +2414,7 @@ function testSessionRecordBlocksCrossTrackEvidence() {
     'version: 2',
     `workspace: ${root}`,
     'worktrees: {}',
-    'workspace_sets:',
+    'tracks:',
     '  track-a:',
     '    aliases: [a]',
     '    worktrees: []',
@@ -1996,7 +2425,7 @@ function testSessionRecordBlocksCrossTrackEvidence() {
     '  local:',
     '    type: local',
     'defaults:',
-    '  workspace_set: track-a',
+    '  track: track-a',
     '  env: local',
     '  sync: local',
   ].join('\n') + '\n');
@@ -2067,14 +2496,14 @@ function testSessionRecordBlocksStaleHeadEvidence() {
     '    branch: feature',
     '    sync:',
     '      profile: local',
-    'workspace_sets:',
+    'tracks:',
     '  feature-a:',
     '    worktrees: ["repo_a__feature"]',
     'env_profiles:',
     '  local:',
     '    type: local',
     'defaults:',
-    '  workspace_set: feature-a',
+    '  track: feature-a',
     '  env: local',
     '  sync: local',
   ].join('\n') + '\n');
@@ -2148,7 +2577,7 @@ function testPresenceTouchListClearAndTrackRuntime() {
     'version: 2',
     `workspace: ${root}`,
     'worktrees: {}',
-    'workspace_sets:',
+    'tracks:',
     '  track-a:',
     '    aliases: [a]',
     '    worktrees: []',
@@ -2159,7 +2588,7 @@ function testPresenceTouchListClearAndTrackRuntime() {
     '  local:',
     '    type: local',
     'defaults:',
-    '  workspace_set: track-a',
+    '  track: track-a',
     '  env: local',
     '  sync: local',
   ].join('\n') + '\n');
@@ -2234,7 +2663,7 @@ function testConsoleTouchesStablePresenceAndShowsSessionCount() {
     'version: 2',
     `workspace: ${root}`,
     'worktrees: {}',
-    'workspace_sets:',
+    'tracks:',
     '  track-a:',
     '    worktrees: []',
     'env_profiles:',
@@ -2242,11 +2671,11 @@ function testConsoleTouchesStablePresenceAndShowsSessionCount() {
     '    type: local',
     'build_profiles:',
     '  track-a-tag-patch:',
-    '    workspace_set: track-a',
+    '    track: track-a',
     '    mode: tag_patch',
     '    image: registry.example.com/library/track-a:test',
     'defaults:',
-    '  workspace_set: track-a',
+    '  track: track-a',
     '  env: local',
     '  sync: local',
     '  build: track-a-tag-patch',
@@ -2282,7 +2711,7 @@ function testConsoleTouchesStablePresenceAndShowsSessionCount() {
     },
   });
   assert.match(output, /Presence: codex-console-thread-001 touched/);
-  assert.match(output, /Active sessions on track: 1/);
+  assert.match(output, /Active sessions on scope: 1/);
   assert.match(output, /Evidence: missing=env-doctor,sync,test/);
   assert.doesNotMatch(output, /missing=.*env-refresh/);
   assert.doesNotMatch(output, /missing=.*image-build/);
@@ -2342,7 +2771,7 @@ function testConsoleHidesMutatingRunCommandsForStaleRun() {
     '    sync:',
     '      profile: local',
     '      remote_path: /tmp/remote/repo-a-feature',
-    'workspace_sets:',
+    'tracks:',
     '  track-a:',
     '    worktrees: ["repo_a__feature"]',
     'env_profiles:',
@@ -2351,11 +2780,11 @@ function testConsoleHidesMutatingRunCommandsForStaleRun() {
     '    work_dir: /tmp/remote',
     'build_profiles:',
     '  track-a-tag-patch:',
-    '    workspace_set: track-a',
+    '    track: track-a',
     '    mode: tag_patch',
     '    image: registry.example.com/library/track-a:test',
     'defaults:',
-    '  workspace_set: track-a',
+    '  track: track-a',
     '  env: local',
     '  sync: local',
     '  build: track-a-tag-patch',
@@ -2467,14 +2896,14 @@ function testStatusSkillDisplaysDtShortcuts() {
     '    repo: repo-a',
     '    path: repo-a-feature',
     '    branch: feature',
-    'workspace_sets:',
+    'tracks:',
     '  track-a:',
     '    worktrees: ["repo_a__feature"]',
     'env_profiles:',
     '  local:',
     '    type: local',
     'defaults:',
-    '  workspace_set: track-a',
+    '  track: track-a',
     '  env: local',
     '  sync: local',
   ].join('\n') + '\n');
@@ -2517,7 +2946,7 @@ function testStatusSkillScopesHistoryToSelectedTrack() {
     '    sync:',
     '      profile: local',
     '      remote_path: /tmp/remote/repo-b',
-    'workspace_sets:',
+    'tracks:',
     '  track-a:',
     '    worktrees: ["repo_a"]',
     '  track-b:',
@@ -2526,7 +2955,7 @@ function testStatusSkillScopesHistoryToSelectedTrack() {
     '  local:',
     '    type: local',
     'defaults:',
-    '  workspace_set: track-a',
+    '  track: track-a',
     '  env: local',
     '  sync: local',
   ].join('\n') + '\n');
@@ -2602,7 +3031,7 @@ function testRemoteLoopRecordTestBlocksCrossTrackRun() {
     'version: 2',
     `workspace: ${root}`,
     'worktrees: {}',
-    'workspace_sets:',
+    'tracks:',
     '  track-a:',
     '    worktrees: []',
     '  track-b:',
@@ -2613,7 +3042,7 @@ function testRemoteLoopRecordTestBlocksCrossTrackRun() {
     '  remote-test-track-b:',
     '    type: local',
     'defaults:',
-    '  workspace_set: track-a',
+    '  track: track-a',
     '  env: remote-test-track-a',
     '  sync: remote-test-track-a',
   ].join('\n') + '\n');
@@ -2713,7 +3142,7 @@ function testSyncPatchModesSeparateBranchPatchFromDirtyOnly() {
     '      profile: remote-test-feature',
     '      remote_path: /tmp/remote/repo-a-feature',
     '      strategy: rsync-relative-patch-files',
-    'workspace_sets:',
+    'tracks:',
     '  feature-a:',
     '    worktrees: ["repo_a__feature"]',
     'env_profiles:',
@@ -2722,7 +3151,7 @@ function testSyncPatchModesSeparateBranchPatchFromDirtyOnly() {
     '    ssh: "sh -c"',
     '    host: local-shell',
     'defaults:',
-    '  workspace_set: feature-a',
+    '  track: feature-a',
     '  env: remote-test-feature',
     '  sync: remote-test-feature',
   ].join('\n') + '\n');
@@ -2789,6 +3218,54 @@ function testDoctorAggregatesWorkspaceChecks() {
   assert.match(doctorWithHistory.next_action, /session archive-plan/);
 }
 
+function testDoctorScopesWorkspaceChecksToFeature() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-doctor-feature-'));
+  const featureA = path.join(root, 'worktrees', 'a', 'repo-a');
+  fs.mkdirSync(featureA, { recursive: true });
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees:',
+    '  repo_a__base:',
+    '    repo: repo-a',
+    '    path: repos/missing-base',
+    '    sync:',
+    '      profile: remote-track',
+    '      remote_path: /remote/base',
+    '  repo_a__feat_a:',
+    '    repo: repo-a',
+    '    path: worktrees/a/repo-a',
+    '    sync:',
+    '      profile: remote-track',
+    '      remote_path: /remote/features/a',
+    'tracks:',
+    '  base-track:',
+    '    worktrees: ["repo_a__base"]',
+    '    sync: remote-track',
+    '    env: remote-track',
+    '    features:',
+    '      feat-a:',
+    '        worktrees: ["repo_a__feat_a"]',
+    'env_profiles:',
+    '  remote-track:',
+    '    type: local',
+    'defaults:',
+    '  track: base-track',
+    '  env: remote-track',
+    '  sync: remote-track',
+  ].join('\n') + '\n');
+
+  const trackDoctor = runCli(root, ['doctor', '--root', root, '--set', 'base-track']);
+  assert.strictEqual(trackDoctor.workspace_status.missing, 1);
+  assert.ok(trackDoctor.problems.some(problem => /missing locally/.test(problem)));
+
+  const featureDoctor = runCli(root, ['doctor', '--root', root, '--set', 'base-track', '--feat', 'feat-a']);
+  assert.strictEqual(featureDoctor.workspace_status.worktrees, 1);
+  assert.strictEqual(featureDoctor.workspace_status.missing, 0);
+  assert.strictEqual(featureDoctor.sync.syncable, 1);
+  assert.strictEqual(featureDoctor.history.totals.errors, 0);
+}
+
 function testImageAndDeployPlansUseConfiguredProfiles() {
   const newRoot = createStandardWorkspace();
 
@@ -2799,9 +3276,18 @@ function testImageAndDeployPlansUseConfiguredProfiles() {
   assert.strictEqual(image.command, 'bash scripts/build-image.sh --build-only');
 
   const deploy = runCli(newRoot, ['deploy', 'plan', '--root', newRoot, '--set', 'feat-a', '--profile', 'staging']);
+  assert.strictEqual(deploy.action, 'deploy_plan');
+  assert.strictEqual(deploy.instance, 'feat-a-preprod');
+  assert.strictEqual(deploy.capability, 'k8s-deploy');
+  assert.strictEqual(deploy.environment, 'staging-cluster');
+  assert.strictEqual(deploy.status, 'ready');
+  assert.deepStrictEqual(deploy.missing, []);
   assert.strictEqual(deploy.profile, 'staging');
   assert.strictEqual(deploy.namespace, 'llm-test');
-  assert.strictEqual(deploy.commands.deploy, './scripts/deploy.sh');
+  assert.match(deploy.commands.deploy, /^eval "\$\(node '.*devteam\.cjs' env runtime .* --shell\)" && \.\/scripts\/deploy\.sh$/);
+
+  const deployList = runCli(newRoot, ['deploy', 'list', '--root', newRoot, '--set', 'feat-a']);
+  assert.deepStrictEqual(deployList.instances.map(item => item.name), ['feat-a-preprod']);
 }
 
 function createBuildProfileWorkspace(changePath) {
@@ -2829,7 +3315,7 @@ function createBuildProfileWorkspace(changePath) {
     '    path: worktrees/track/vllm',
     '    branch: track',
     '    base_ref: v0.20.0',
-    'workspace_sets:',
+    'tracks:',
     '  track:',
     '    worktrees: ["vllm__track"]',
     'builders:',
@@ -2838,7 +3324,7 @@ function createBuildProfileWorkspace(changePath) {
     '    registry: registry.example.com/library',
     'build_profiles:',
     '  track-image:',
-    '    workspace_set: track',
+    '    track: track',
     '    builder: image-builder',
     '    mode: tag_patch_image',
     '    gates:',
@@ -2855,7 +3341,68 @@ function createBuildProfileWorkspace(changePath) {
     '      tag_template: "{track}-{primary_short_sha}"',
     '      primary_worktree: vllm__track',
     'defaults:',
-    '  workspace_set: track',
+    '  track: track',
+    '  build: track-image',
+  ].join('\n') + '\n');
+  return { root, vllm };
+}
+
+function createBuildProfileWorkspaceWithChange(applyChange) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-image-contract-'));
+  const vllm = path.join(root, 'worktrees', 'track', 'vllm');
+  fs.mkdirSync(path.join(vllm, 'vllm'), { recursive: true });
+  execFileSync('git', ['init'], { cwd: vllm, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: vllm });
+  execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: vllm });
+  execFileSync('git', ['checkout', '-b', 'track'], { cwd: vllm, stdio: ['ignore', 'ignore', 'ignore'] });
+  writeFile(path.join(vllm, 'README.md'), '# vllm\n');
+  writeFile(path.join(vllm, 'vllm', 'old.py'), 'old\n');
+  writeFile(path.join(vllm, 'vllm', 'rename_old.py'), 'rename old\n');
+  execFileSync('git', ['add', '.'], { cwd: vllm });
+  execFileSync('git', ['commit', '-m', 'base'], { cwd: vllm, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['tag', 'v0.20.0'], { cwd: vllm });
+
+  applyChange(vllm);
+  execFileSync('git', ['add', '-A'], { cwd: vllm });
+  execFileSync('git', ['commit', '-m', 'patch'], { cwd: vllm, stdio: ['ignore', 'ignore', 'ignore'] });
+
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees:',
+    '  vllm__track:',
+    '    repo: vllm-int',
+    '    path: worktrees/track/vllm',
+    '    branch: track',
+    '    base_ref: v0.20.0',
+    'tracks:',
+    '  track:',
+    '    worktrees: ["vllm__track"]',
+    'builders:',
+    '  image-builder:',
+    '    type: remote_docker',
+    '    registry: registry.example.com/library',
+    'build_profiles:',
+    '  track-image:',
+    '    track: track',
+    '    builder: image-builder',
+    '    mode: tag_patch_image',
+    '    gates:',
+    '      require_remote_validation: false',
+    '      require_publish: false',
+    '    vllm:',
+    '      worktree: vllm__track',
+    '      base_image: vllm/vllm-openai:v0.20.0-ubuntu2404@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    '      patch:',
+    '        diff_base: v0.20.0',
+    '        include_paths: ["vllm/"]',
+    '        unsafe_paths: ["**/pyproject.toml"]',
+    '    image:',
+    '      repository: vllm-with-pegaflow',
+    '      tag_template: "{track}-{primary_short_sha}"',
+    '      primary_worktree: vllm__track',
+    'defaults:',
+    '  track: track',
     '  build: track-image',
   ].join('\n') + '\n');
   return { root, vllm };
@@ -2883,17 +3430,78 @@ function testImagePlanSupportsTagPatchBuildContract() {
   assert.ok(plan.strategy.dockerfile_outline.some(line => line.includes('FROM vllm/vllm-openai:v0.20.0-ubuntu2404@sha256:')));
 }
 
+function testImagePlanUsesTrackForRemoteValidationGate() {
+  const { root } = createBuildProfileWorkspace('vllm/engine.py');
+  const configPath = path.join(root, '.devteam', 'config.yaml');
+  let config = fs.readFileSync(configPath, 'utf8');
+  config = config.replace(
+    '      require_remote_validation: false\n',
+    '      require_remote_validation: true\n'
+  );
+  fs.writeFileSync(configPath, config, 'utf8');
+
+  const plan = runCli(root, ['image', 'plan', '--root', root, '--profile', 'track-image']);
+
+  assert.strictEqual(plan.track, 'track');
+  assert.strictEqual(plan.workspace_set, 'track');
+  assert.deepStrictEqual(plan.missing, []);
+  assert.ok(!plan.blocked_by.includes('profile_incomplete'));
+  assert.ok(plan.blocked_by.includes('remote_validation_gate'));
+  assert.strictEqual(plan.status, 'blocked');
+  assert.match(plan.next_action, /Resolve blocked gates before image build/);
+}
+
 function testImagePlanDetectsUnsafeTagPatchFiles() {
-  const { root } = createBuildProfileWorkspace('csrc/kernel.cu');
+  const { root } = createBuildProfileWorkspaceWithChange(vllm => {
+    writeFile(path.join(vllm, 'vllm', 'pyproject.toml'), 'patched\n');
+  });
   const plan = runCli(root, ['image', 'plan', '--root', root, '--profile', 'track-image']);
 
   assert.strictEqual(plan.mode, 'tag_patch_image');
   assert.strictEqual(plan.complete, false);
   assert.strictEqual(plan.status, 'blocked');
   assert.ok(plan.blocked_by.includes('unsafe_patch_files'));
-  assert.deepStrictEqual(plan.vllm.patch.unsafe_files, ['csrc/kernel.cu']);
-  assert.deepStrictEqual(plan.unsafe_patch_files, ['csrc/kernel.cu']);
-  assert.strictEqual(plan.vllm.patch.patch_file_count, 0);
+  assert.deepStrictEqual(plan.vllm.patch.unsafe_files, ['vllm/pyproject.toml']);
+  assert.deepStrictEqual(plan.unsafe_patch_files, ['vllm/pyproject.toml']);
+  assert.strictEqual(plan.vllm.patch.patch_file_count, 1);
+}
+
+function testImagePlanIgnoresUnsafeFilesOutsideTagPatchInputs() {
+  const { root } = createBuildProfileWorkspace('docker/Dockerfile');
+  const plan = runCli(root, ['image', 'plan', '--root', root, '--profile', 'track-image']);
+
+  assert.strictEqual(plan.mode, 'tag_patch_image');
+  assert.strictEqual(plan.complete, true);
+  assert.strictEqual(plan.ready, true);
+  assert.deepStrictEqual(plan.vllm.patch.patch_files, []);
+  assert.deepStrictEqual(plan.vllm.patch.raw_unsafe_files, ['docker/Dockerfile']);
+  assert.deepStrictEqual(plan.vllm.patch.ignored_unsafe_files, ['docker/Dockerfile']);
+  assert.deepStrictEqual(plan.unsafe_patch_files, []);
+  assert.deepStrictEqual(plan.strategy.materialize_inputs.vllm_ignored_unsafe_files, ['docker/Dockerfile']);
+}
+
+function testImagePlanTracksTagPatchDeletesAndRenames() {
+  const { root } = createBuildProfileWorkspaceWithChange(vllm => {
+    fs.unlinkSync(path.join(vllm, 'vllm', 'old.py'));
+    fs.renameSync(path.join(vllm, 'vllm', 'rename_old.py'), path.join(vllm, 'vllm', 'rename_new.py'));
+  });
+  const plan = runCli(root, ['image', 'plan', '--root', root, '--profile', 'track-image']);
+
+  assert.strictEqual(plan.complete, true);
+  assert.deepStrictEqual(plan.vllm.patch.patch_files, ['vllm/rename_new.py']);
+  assert.deepStrictEqual(plan.vllm.patch.deleted_files, ['vllm/old.py']);
+  assert.deepStrictEqual(plan.vllm.patch.removed_files, ['vllm/old.py', 'vllm/rename_old.py']);
+  assert.deepStrictEqual(plan.vllm.patch.renamed_files, [
+    { from: 'vllm/rename_old.py', to: 'vllm/rename_new.py', status: 'R100' },
+  ]);
+  assert.deepStrictEqual(plan.strategy.materialize_inputs.vllm_removed_files, ['vllm/old.py', 'vllm/rename_old.py']);
+
+  const prepared = runCli(root, ['image', 'prepare', '--root', root, '--profile', 'track-image']);
+  assert.strictEqual(prepared.totals.copied, 1);
+  const manifest = JSON.parse(fs.readFileSync(path.join(prepared.context_dir, 'patch-manifest.json'), 'utf8'));
+  assert.deepStrictEqual(manifest.vllm.patch.removed_files, ['vllm/old.py', 'vllm/rename_old.py']);
+  const dockerfile = fs.readFileSync(path.join(prepared.context_dir, 'Dockerfile.devteam'), 'utf8');
+  assert.match(dockerfile, /COPY patch-manifest\.json \/tmp\/devteam-overlays\/patch-manifest\.json/);
 }
 
 function testImagePlanSupportsExplicitRuntimePackagesForTagPatch() {
@@ -3407,7 +4015,7 @@ function testSessionRecordCanParseRemotePytestLog() {
     'version: 2',
     `workspace: ${root}`,
     'worktrees: {}',
-    'workspace_sets:',
+    'tracks:',
     '  empty:',
     '    worktrees: []',
     'env_profiles:',
@@ -3417,7 +4025,7 @@ function testSessionRecordCanParseRemotePytestLog() {
     '    host: "local-shell"',
     '    source_dir: "/tmp"',
     'defaults:',
-    '  workspace_set: empty',
+    '  track: empty',
     '  env: remote-shell',
     '  sync: remote-shell',
   ].join('\n') + '\n');
@@ -3454,14 +4062,14 @@ function testSyncApplyCanAutoRecordToSessionRun() {
     'version: 2',
     `workspace: ${root}`,
     'worktrees: {}',
-    'workspace_sets:',
+    'tracks:',
     '  empty:',
     '    worktrees: []',
     'env_profiles:',
     '  local:',
     '    type: local',
     'defaults:',
-    '  workspace_set: empty',
+    '  track: empty',
     '  env: local',
     '  sync: local',
   ].join('\n') + '\n');
@@ -3527,7 +4135,7 @@ function testEnvRefreshCanAutoRecordToSessionRun() {
     'version: 2',
     `workspace: ${root}`,
     'worktrees: {}',
-    'workspace_sets:',
+    'tracks:',
     '  empty:',
     '    worktrees: []',
     'env_profiles:',
@@ -3541,7 +4149,7 @@ function testEnvRefreshCanAutoRecordToSessionRun() {
     `    uv: "${uv}"`,
     '    install_mode: editable-precompiled',
     'defaults:',
-    '  workspace_set: empty',
+    '  track: empty',
     '  env: remote-vllm',
     '  sync: remote-vllm',
   ].join('\n') + '\n');
@@ -3580,14 +4188,14 @@ function testEnvDoctorCanAutoRecordToSessionRun() {
     'version: 2',
     `workspace: ${root}`,
     'worktrees: {}',
-    'workspace_sets:',
+    'tracks:',
     '  empty:',
     '    worktrees: []',
     'env_profiles:',
     '  local:',
     '    type: local',
     'defaults:',
-    '  workspace_set: empty',
+    '  track: empty',
     '  env: local',
     '  sync: local',
   ].join('\n') + '\n');
@@ -3619,20 +4227,23 @@ function testEnvDoctorCanAutoRecordToSessionRun() {
   assert.match(readme, /env doctor pass for local \(local\)/);
 }
 
-function testWorkspaceScaffoldCreatesCleanSkeleton() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-skeleton-'));
+function testWorkspaceScaffoldCreatesRegistryLaneLayout() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-layout-'));
   const result = runCli(root, [
     'workspace',
     'scaffold',
     '--root',
     root,
     '--name',
-    'skeleton-test',
+    'layout-test',
   ]);
 
   assert.strictEqual(result.action, 'workspace_scaffold');
-  assert.strictEqual(result.name, 'skeleton-test');
+  assert.strictEqual(result.name, 'layout-test');
   assert.ok(fs.existsSync(path.join(root, '.devteam', 'config.yaml')));
+  assert.ok(fs.existsSync(path.join(root, '.devteam', 'registry', 'environments.yaml')));
+  assert.ok(fs.existsSync(path.join(root, '.devteam', 'registry', 'capabilities.yaml')));
+  assert.ok(fs.existsSync(path.join(root, '.devteam', 'lanes', 'default.yaml')));
   assert.ok(fs.existsSync(path.join(root, '.devteam', 'recipes', 'remote-test-loop.md')));
   assert.ok(fs.existsSync(path.join(root, '.devteam', 'wiki', 'index.md')));
   assert.ok(fs.existsSync(path.join(root, '.devteam', 'skills', 'README.md')));
@@ -3657,8 +4268,8 @@ function testWorkspaceOnboardingContextTrackContextAndHandoff() {
     `workspace: ${root}`,
     'name: onboarding-test',
     'agent_onboarding:',
-    '  old_workspace:',
-    '    path: "/tmp/old-devteam-workspace"',
+    '  reference_workspace:',
+    '    path: "/tmp/reference-devteam-workspace"',
     '    policy: "read-only"',
     'worktrees:',
     '  repo_a__feature:',
@@ -3670,7 +4281,7 @@ function testWorkspaceOnboardingContextTrackContextAndHandoff() {
     '    sync:',
     '      profile: remote-test-feature',
     '      remote_path: /remote/devteam/feature/repo-a',
-    'workspace_sets:',
+    'tracks:',
     '  feature-a:',
     '    description: Feature A validation track',
     '    aliases: [feat-a]',
@@ -3691,10 +4302,10 @@ function testWorkspaceOnboardingContextTrackContextAndHandoff() {
     '    type: local',
     'build_profiles:',
     '  feature-a-image:',
-    '    workspace_set: feature-a',
+    '    track: feature-a',
     '    mode: tag_patch_image',
     'defaults:',
-    '  workspace_set: feature-a',
+    '  track: feature-a',
     '  env: remote-test-feature',
     '  sync: remote-test-feature',
     '  build: feature-a-image',
@@ -3712,8 +4323,10 @@ function testWorkspaceOnboardingContextTrackContextAndHandoff() {
   assert.ok(fs.existsSync(path.join(root, 'README.devteam.md')));
   const agents = fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
   assert.match(agents, /workspace context --root "\$PWD" --for codex --text/);
+  assert.match(agents, /--set "<track>" --feat "<feat>"/);
+  assert.match(agents, /Default feature/);
   assert.match(agents, /Feature A validation track/);
-  assert.match(agents, /\/tmp\/old-devteam-workspace/);
+  assert.match(agents, /\/tmp\/reference-devteam-workspace/);
 
   const context = runCli(root, ['workspace', 'context', '--root', root, '--for', 'codex']);
   assert.strictEqual(context.action, 'workspace_context');
@@ -3726,7 +4339,7 @@ function testWorkspaceOnboardingContextTrackContextAndHandoff() {
 
   const contextText = runCliText(root, ['workspace', 'context', '--root', root, '--for', 'codex', '--text']);
   assert.match(contextText, /Devteam Workspace Context/);
-  assert.match(contextText, /Choose a track before editing code/);
+  assert.match(contextText, /Choose a track and optional feature before editing code/);
 
   const trackContext = runCli(root, ['track', 'context', '--root', root, '--set', 'feat-a']);
   assert.strictEqual(trackContext.action, 'track_context');
@@ -3791,7 +4404,7 @@ function testKnowledgeListSearchLintAndCaptureRun() {
     'version: 2',
     `workspace: ${root}`,
     'worktrees: {}',
-    'workspace_sets:',
+    'tracks:',
     '  empty:',
     '    worktrees: []',
     'env_profiles:',
@@ -3802,7 +4415,7 @@ function testKnowledgeListSearchLintAndCaptureRun() {
     '  wiki_dir: ".devteam/wiki"',
     '  skills_dir: ".devteam/skills"',
     'defaults:',
-    '  workspace_set: empty',
+    '  track: empty',
     '  env: local',
     '  sync: local',
   ].join('\n') + '\n');
@@ -3900,7 +4513,7 @@ function testSkillListLintAndInstallUsesExplicitTarget() {
     'version: 2',
     `workspace: ${root}`,
     'worktrees: {}',
-    'workspace_sets:',
+    'tracks:',
     '  empty:',
     '    worktrees: []',
     'env_profiles:',
@@ -3909,7 +4522,7 @@ function testSkillListLintAndInstallUsesExplicitTarget() {
     'knowledge:',
     '  skills_dir: ".devteam/skills"',
     'defaults:',
-    '  workspace_set: empty',
+    '  track: empty',
     '  env: local',
   ].join('\n') + '\n');
   writeFile(path.join(root, '.devteam', 'skills', 'README.md'), '# Skills\n');
@@ -4021,13 +4634,203 @@ function testVllmRefreshCommandUsesEditablePrecompiledInstall() {
   assert.match(command, /UV_LINK_MODE='copy'/);
 }
 
+function testEnvProfileInheritsEnvironmentMachineFacts() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-env-effective-'));
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees: {}',
+    'tracks: {}',
+    'environments:',
+    '  remote-a:',
+    '    kind: ssh_host',
+    '    ssh: "ssh root@10.0.0.1"',
+    '    host: "root@10.0.0.1"',
+    '    proxy:',
+    '      all_proxy: "socks5h://machine:1080"',
+    '      http_proxy: "http://machine:1081"',
+    '      no_proxy: "localhost,127.0.0.1"',
+    '      uv_link_mode: copy',
+    'env_profiles:',
+    '  remote-vllm:',
+    '    type: remote_dev',
+    '    environment: remote-a',
+    '    source_dir: "/ppio1/devteam/demo/vllm-int"',
+    '    venv: "/ppio1/venvs/vllm-demo"',
+    '    python: "/ppio1/venvs/vllm-demo/bin/python"',
+    '    proxy:',
+    '      http_proxy: "http://track:8080"',
+    'defaults:',
+    '  env: remote-vllm',
+    '',
+  ].join('\n'));
+
+  const config = loadWorkspaceConfig(root);
+  const profile = effectiveEnvProfile(config, 'remote-vllm');
+  assert.equal(profile.ssh, 'ssh root@10.0.0.1');
+  assert.equal(profile.host, 'root@10.0.0.1');
+  assert.equal(profile.environment, 'remote-a');
+  assert.equal(profile.proxy.all_proxy, 'socks5h://machine:1080');
+  assert.equal(profile.proxy.http_proxy, 'http://track:8080');
+  assert.equal(profile.proxy.no_proxy, 'localhost,127.0.0.1');
+  assert.equal(profile.proxy.uv_link_mode, 'copy');
+}
+
+function testRuntimeContextBindsEnvProxyAndWorktrees() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-runtime-context-'));
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees:',
+    '  repo_a__feat:',
+    '    repo: repo-a',
+    '    path: repos/repo-a',
+    '    branch: feat',
+    'tracks:',
+    '  feat-a:',
+    '    worktrees: ["repo_a__feat"]',
+    '    env: remote-vllm',
+    '    sync: remote-vllm',
+    'environments:',
+    '  remote-a:',
+    '    kind: ssh_host',
+    '    ssh: "ssh root@10.0.0.1"',
+    '    host: "root@10.0.0.1"',
+    '    proxy:',
+    '      all_proxy: "socks5h://machine:1080"',
+    '      http_proxy: "http://machine:1081"',
+    '      no_proxy: "localhost,127.0.0.1"',
+    'env_profiles:',
+    '  remote-vllm:',
+    '    type: remote_dev',
+    '    environment: remote-a',
+    '    work_dir: "/remote/dev"',
+    '    source_dir: "/remote/dev/repos/repo-a"',
+    '    venv: "/remote/venv"',
+    '    python: "/remote/venv/bin/python"',
+    '    proxy:',
+    '      http_proxy: "http://track:8080"',
+    'defaults:',
+    '  track: feat-a',
+    '  env: remote-vllm',
+    '  sync: remote-vllm',
+    '',
+  ].join('\n'));
+
+  const config = loadWorkspaceConfig(root);
+  const runtime = buildRuntimeContext({ config, set: 'feat-a' });
+  assert.equal(runtime.env.DEVTEAM_ROOT, root);
+  assert.equal(runtime.env.DEVTEAM_TRACK, 'feat-a');
+  assert.equal(runtime.env.DEVTEAM_ENV_PROFILE, 'remote-vllm');
+  assert.equal(runtime.env.DEVTEAM_WORK_DIR, '/remote/dev');
+  assert.equal(runtime.env.DEVTEAM_SOURCE_DIR, '/remote/dev/repos/repo-a');
+  assert.equal(runtime.env.DEVTEAM_VENV, '/remote/venv');
+  assert.equal(runtime.env.DEVTEAM_PYTHON, '/remote/venv/bin/python');
+  assert.equal(runtime.env.ALL_PROXY, 'socks5h://machine:1080');
+  assert.equal(runtime.env.HTTP_PROXY, 'http://track:8080');
+  assert.equal(runtime.env.HTTPS_PROXY, 'http://track:8080');
+  assert.equal(runtime.env.NO_PROXY, 'localhost,127.0.0.1');
+  assert.equal(runtime.worktrees[0].remote_path, '/remote/dev/repos/repo-a');
+  assert.equal(runtime.env.DEVTEAM_WORKTREE_REPO_A_FEAT_REMOTE_PATH, '/remote/dev/repos/repo-a');
+}
+
+function testSessionStartWritesRuntimeShell() {
+  const root = createStandardWorkspace('devteam-session-runtime-');
+  const result = runCli(root, ['session', 'start', '--root', root, '--set', 'feat-a', '--no-build', '--no-deploy']);
+  assert.ok(result.runtime.path.endsWith('/runtime.sh'));
+  assert.ok(fs.existsSync(result.runtime.path));
+  const session = JSON.parse(fs.readFileSync(result.path, 'utf8'));
+  assert.equal(session.runtime.env.DEVTEAM_WORK_DIR, '/remote/build');
+  assert.equal(session.runtime.env.DEVTEAM_WORKTREE_REPO_A_FEAT_A_REMOTE_PATH, '/remote/build/repo-a-dev');
+  const shell = fs.readFileSync(result.runtime.path, 'utf8');
+  assert.match(shell, /export DEVTEAM_WORK_DIR='\/remote\/build'/);
+  const readme = fs.readFileSync(result.readme_path, 'utf8');
+  assert.match(readme, /Runtime Env/);
+  assert.match(readme, /\. '.*runtime\.sh'/);
+}
+
+function testSessionStatusBackfillsRuntimeForOldRuns() {
+  const root = createStandardWorkspace('devteam-session-runtime-backfill-');
+  const result = runCli(root, ['session', 'snapshot', '--root', root, '--set', 'feat-a', '--no-build', '--no-deploy']);
+  const sessionPath = result.path;
+  const session = JSON.parse(fs.readFileSync(sessionPath, 'utf8'));
+  delete session.runtime;
+  fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2) + '\n', 'utf8');
+
+  const status = runCli(root, ['session', 'status', '--root', root, '--run', result.run_id]);
+  assert.equal(status.runtime.env.DEVTEAM_WORK_DIR, '/remote/build');
+  assert.equal(status.runtime.env.DEVTEAM_WORKTREE_REPO_A_FEAT_A_REMOTE_PATH, '/remote/build/repo-a-dev');
+}
+
+function testValidatePlanIncludesRuntimeForK8sDev() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-validate-runtime-'));
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees:',
+    '  repo_a__feat:',
+    '    repo: repo-a',
+    '    path: repo-a',
+    'tracks:',
+    '  feat-a:',
+    '    worktrees: ["repo_a__feat"]',
+    'capability_definitions:',
+    '  k8s-vllm-dev:',
+    '    kind: ValidationCapability',
+    '    environment_kind: k8s_cluster',
+    '    source_mode: git-in-pod',
+    '    requires:',
+    '      facts: ["entry_ssh", "namespace", "network_access"]',
+    'environments:',
+    '  dev-cluster:',
+    '    kind: k8s_cluster',
+    '    entry_ssh: "ssh root@cluster"',
+    '    namespace_defaults: ["dev"]',
+    '    kubeconfig: "/tmp/kubeconfig"',
+    '    proxy:',
+    '      http_proxy: "http://cluster-proxy:8080"',
+    'env_profiles:',
+    '  k8s-dev:',
+    '    type: k8s',
+    '    environment: dev-cluster',
+    '    namespace: dev',
+    'validation_instances:',
+    '  feat-a-k8s:',
+    '    track: feat-a',
+    '    capability: k8s-vllm-dev',
+    '    environment: dev-cluster',
+    '    env_profile: k8s-dev',
+    '    helper: .devteam/scripts/vllm_k8s_dev.py',
+    'defaults:',
+    '  track: feat-a',
+    '  env: k8s-dev',
+    '',
+  ].join('\n'));
+
+  const plan = runCli(root, ['validate', 'plan', '--root', root, '--set', 'feat-a', '--instance', 'feat-a-k8s']);
+  assert.equal(plan.status, 'ready');
+  assert.equal(plan.runtime.env.K8S_NAMESPACE, 'dev');
+  assert.equal(plan.runtime.env.KUBECONFIG, '/tmp/kubeconfig');
+  assert.equal(plan.runtime.env.HTTP_PROXY, 'http://cluster-proxy:8080');
+  assert.match(plan.commands.doctor, /^eval "\$\(node '.*devteam\.cjs' env runtime .* --shell\)" && \.devteam\/scripts\/vllm_k8s_dev\.py doctor --instance feat-a-k8s$/);
+  assert.match(plan.commands.runtime_env, /^eval "\$\(node '.*devteam\.cjs' env runtime .* --shell\)"$/);
+}
+
+function testDeployPlanIncludesRuntimeSourceForCommands() {
+  const root = createStandardWorkspace('devteam-deploy-runtime-');
+  const plan = runCli(root, ['deploy', 'plan', '--root', root, '--set', 'feat-a']);
+  assert.equal(plan.runtime.env.K8S_NAMESPACE, 'llm-test');
+  assert.match(plan.commands.runtime_env, /^eval "\$\(node '.*devteam\.cjs' env runtime .* --shell\)"$/);
+  assert.match(plan.commands.deploy, /^eval "\$\(node '.*devteam\.cjs' env runtime .* --shell\)" && \.\/scripts\/deploy\.sh$/);
+}
+
 function testEnvRefreshDefaultsToDryRunPlan() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-env-refresh-'));
   writeFile(path.join(root, '.devteam', 'config.yaml'), [
     'version: 2',
     `workspace: ${root}`,
     'worktrees: {}',
-    'workspace_sets: {}',
+    'tracks: {}',
     'env_profiles:',
     '  remote-vllm:',
     '    type: remote_dev',
@@ -4054,6 +4857,8 @@ function main() {
   testYamlDoubleQuotedEscapesForShellCommands();
   testWorkspaceStatusShowsMissingAndSource();
   testWorkspaceStatusSurfacesPublishPlan();
+  testWorkspaceConfigIncludesLaneFragments();
+  testFeatureReusesTrackEnvAndValidationProfiles();
   testWorkspaceStatusIncludesDirtyFileSummary();
   testWorkspacePublishPlanSurfacesPushCommands();
   testWorkspacePublishRequiresGateAndRecordsPush();
@@ -4084,9 +4889,13 @@ function main() {
   testSyncPlanCanIncludeWorkspaceAssets();
   testSyncPatchModesSeparateBranchPatchFromDirtyOnly();
   testDoctorAggregatesWorkspaceChecks();
+  testDoctorScopesWorkspaceChecksToFeature();
   testImageAndDeployPlansUseConfiguredProfiles();
   testImagePlanSupportsTagPatchBuildContract();
+  testImagePlanUsesTrackForRemoteValidationGate();
   testImagePlanDetectsUnsafeTagPatchFiles();
+  testImagePlanIgnoresUnsafeFilesOutsideTagPatchInputs();
+  testImagePlanTracksTagPatchDeletesAndRenames();
   testImagePrepareMaterializesTagPatchContext();
   testImageAndDeployPlansUseRunGatesAndRecords();
   testImageRecordCanEnableOptionalBuildProfileOnRun();
@@ -4100,13 +4909,19 @@ function main() {
   testSyncApplyCanAutoRecordToSessionRun();
   testEnvRefreshCanAutoRecordToSessionRun();
   testEnvDoctorCanAutoRecordToSessionRun();
-  testWorkspaceScaffoldCreatesCleanSkeleton();
+  testWorkspaceScaffoldCreatesRegistryLaneLayout();
   testWorkspaceOnboardingContextTrackContextAndHandoff();
   testKnowledgeListSearchLintAndCaptureRun();
   testSkillListLintAndInstallUsesExplicitTarget();
   testRemoteDevVllmProfileChecksSourceVenvAndImport();
   testRemoteDevProfileWithoutVllmSkipsImportCheck();
   testVllmRefreshCommandUsesEditablePrecompiledInstall();
+  testEnvProfileInheritsEnvironmentMachineFacts();
+  testRuntimeContextBindsEnvProxyAndWorktrees();
+  testSessionStartWritesRuntimeShell();
+  testSessionStatusBackfillsRuntimeForOldRuns();
+  testValidatePlanIncludesRuntimeForK8sDev();
+  testDeployPlanIncludesRuntimeSourceForCommands();
   testEnvRefreshDefaultsToDryRunPlan();
   console.log('workspace-runtime: ok');
 }

@@ -1,5 +1,21 @@
 # devteam Release Notes
 
+## Unreleased
+
+- The workspace model is now `tracks` plus nested `features`. Tracks own the
+  reusable env/sync/build execution profiles, validation/deploy instances,
+  remote venv, and K8s dev capability bindings. Features only select
+  incremental worktrees under that track.
+- CLI selection is now `--set <track>` plus optional `--feat <feat>`. Session
+  runs, latest-run lookup, stale-head checks, lint, supersede planning,
+  remote-loop, sync, image, deploy, publish, and status all scope worktree/run
+  state to the selected feature while reusing the track-owned profiles.
+- Config parsing and generated scaffold configs now use the current `tracks:`
+  plus nested `features:` model.
+- Track image profiles can still refer to base worktrees; when a feature is
+  selected, image planning maps same-repo profile worktree inputs to the
+  selected feature worktree so patch/source heads stay feature-local.
+
 ## 2.2.2 - Portable workspace acceptance default
 
 The workspace acceptance checker is now portable across Macs.
@@ -31,15 +47,15 @@ machines while keeping the same Claude/Codex skill workflow.
 
 ## 2.2.0 - .devteam workspace runtime
 
-`devteam` is centered on the current `.devteam/config.yaml` workspace runtime
-used by `llmd-vllm-v020-pega-v021`: local Mac worktrees, session-selected
-tracks, remote venv validation, image planning, pre-production deploy evidence,
-and reusable skills.
+`devteam` added the `.devteam` workspace runtime used by
+`llmd-vllm-v020-pega-v021`: local Mac worktrees, session-selected tracks,
+remote venv validation, image planning, pre-production deploy evidence, and
+reusable skills.
 
 ### Daily Workflow
 
 1. Open a devteam-managed workspace.
-2. Read workspace context and choose a track for the current session.
+2. Read workspace context and choose a track and optional feature for the current session.
 3. Start or continue a run under `.devteam/runs/<run-id>/`.
 4. Inspect worktrees and sync selected changes to the remote test host.
 5. Validate in the configured remote venv and record evidence.
@@ -59,18 +75,22 @@ Primary CLI commands:
 - `status`
 - `doctor [agent-onboarding]`
 - `ws status|materialize|publish-plan|publish`
-- `env list|doctor|refresh`
+- `env list|show|environments|doctor|refresh`
+- `capability list|show`
+- `validate list|plan`
 - `sync plan|apply|status`
 - `remote-loop plan|start|doctor|refresh|sync|record-test|status`
 - `image plan|prepare|record`
-- `deploy plan|record|verify-record`
+- `deploy list|plan|record|verify-record`
 - `skill list|status|lint|install`
 - `knowledge list|search|lint|capture`
 
 ### Workspace And Track Model
 
-- Tracks are session-scoped. `defaults.workspace_set` is only a default hint.
-- Use `--set <track>` or `DEVTEAM_TRACK` for the current session.
+- Tracks are session-scoped. `defaults.track` and optional `defaults.feat` are
+  only default hints.
+- Use `--set <track>` plus optional `--feat <feat>`, or
+  `DEVTEAM_TRACK`/`DEVTEAM_FEAT`, for the current session.
 - `track list --active-only --text` is the default picker surface for agents.
 - `presence` records soft-lock hints for concurrent sessions; it never blocks
   sync, test, build, publish, or deploy.

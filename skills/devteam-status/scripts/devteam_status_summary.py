@@ -65,7 +65,29 @@ def find_root(root_arg: Optional[str]) -> Path:
 
 
 def env_track() -> Optional[str]:
-    return os.environ.get("DEVTEAM_TRACK") or os.environ.get("DEVTEAM_WORKSPACE_SET")
+    return os.environ.get("DEVTEAM_TRACK")
+
+
+def env_feat() -> Optional[str]:
+    return os.environ.get("DEVTEAM_FEAT") or os.environ.get("DEVTEAM_FEATURE")
+
+
+def scope_parts(workspace_set: Optional[str], feat: Optional[str] = None) -> list[str]:
+    parts = []
+    if workspace_set:
+        parts.extend(["--set", workspace_set])
+    if feat:
+        parts.extend(["--feat", feat])
+    return parts
+
+
+def scope_command(workspace_set: Optional[str], feat: Optional[str] = None) -> str:
+    parts = []
+    if workspace_set:
+        parts.extend(["--set", quoted(workspace_set)])
+    if feat:
+        parts.extend(["--feat", quoted(feat)])
+    return " ".join(parts)
 
 
 def run_devteam_status(
@@ -73,12 +95,13 @@ def run_devteam_status(
     root: Path,
     run_id: Optional[str],
     workspace_set: Optional[str],
+    feat: Optional[str] = None,
 ) -> dict:
     cmd = ["node", str(cli), "status", "--root", str(root), "--json"]
     if run_id:
         cmd.extend(["--run", run_id])
     elif workspace_set:
-        cmd.extend(["--set", workspace_set])
+        cmd.extend(scope_parts(workspace_set, feat))
 
     proc = subprocess.run(cmd, text=True, capture_output=True)
     if proc.returncode != 0:
@@ -97,6 +120,7 @@ def run_session_list(
     root: Path,
     limit: int = 3,
     workspace_set: Optional[str] = None,
+    feat: Optional[str] = None,
 ) -> Optional[dict]:
     cmd = [
         "node",
@@ -109,7 +133,7 @@ def run_session_list(
         str(limit),
     ]
     if workspace_set:
-        cmd.extend(["--set", workspace_set])
+        cmd.extend(scope_parts(workspace_set, feat))
     proc = subprocess.run(cmd, text=True, capture_output=True)
     if proc.returncode != 0:
         return None
@@ -123,6 +147,7 @@ def run_session_lint(
     cli: Path,
     root: Path,
     workspace_set: Optional[str] = None,
+    feat: Optional[str] = None,
 ) -> Optional[dict]:
     cmd = [
         "node",
@@ -133,7 +158,7 @@ def run_session_lint(
         str(root),
     ]
     if workspace_set:
-        cmd.extend(["--set", workspace_set])
+        cmd.extend(scope_parts(workspace_set, feat))
     proc = subprocess.run(cmd, text=True, capture_output=True)
     if proc.returncode != 0:
         return None
@@ -143,10 +168,10 @@ def run_session_lint(
         return None
 
 
-def run_workspace_status(cli: Path, root: Path, workspace_set: Optional[str] = None) -> dict:
+def run_workspace_status(cli: Path, root: Path, workspace_set: Optional[str] = None, feat: Optional[str] = None) -> dict:
     cmd = ["node", str(cli), "ws", "status", "--root", str(root)]
     if workspace_set:
-        cmd.extend(["--set", workspace_set])
+        cmd.extend(scope_parts(workspace_set, feat))
     proc = subprocess.run(cmd, text=True, capture_output=True)
     if proc.returncode != 0:
         sys.stderr.write(proc.stderr or proc.stdout)
@@ -225,17 +250,19 @@ def display_command(text: object, cli: Path, root: Path) -> str:
     return value
 
 
-def archive_plan_command(cli: Path, root: Path) -> str:
-    return (
-        f"node {quoted(cli)} session archive-plan "
-        f"--root {quoted(root)} --text"
-    )
+def archive_plan_command(cli: Path, root: Path, workspace_set: Optional[str] = None, feat: Optional[str] = None) -> str:
+    command = f"node {quoted(cli)} session archive-plan --root {quoted(root)}"
+    scope = scope_command(workspace_set, feat)
+    if scope:
+        command += f" {scope}"
+    return f"{command} --text"
 
 
-def remote_loop_command(cli: Path, root: Path, workspace_set: Optional[str]) -> str:
+def remote_loop_command(cli: Path, root: Path, workspace_set: Optional[str], feat: Optional[str] = None) -> str:
     command = f"node {quoted(cli)} remote-loop start --root {quoted(root)}"
-    if workspace_set:
-        command += f" --set {quoted(workspace_set)}"
+    scope = scope_command(workspace_set, feat)
+    if scope:
+        command += f" {scope}"
     command += " --text"
     return command
 
@@ -352,21 +379,23 @@ def phase_brief(data: dict) -> str:
 
 def primary_actions(data: dict, run_lint: Optional[dict], cli: Path, root: Path) -> list[str]:
     workspace_set = data.get("workspace_set") or None
+    feat = data.get("feat") or None
+    scope = scope_command(workspace_set, feat)
     workspace_status = data.get("workspace_status") or {}
     if workspace_status.get("missing", 0) > 0:
         return [
             "Materialize missing local worktrees before sync/test.",
-            f"node {quoted(cli)} ws materialize --root {quoted(root)} --set {quoted(workspace_set or '')}",
+            f"node {quoted(cli)} ws materialize --root {quoted(root)} {scope}".strip(),
         ]
     if workspace_status.get("dirty", 0) > 0:
         return [
             "Review local dirty files before syncing or publishing.",
-            f"node {quoted(cli)} ws status --root {quoted(root)} --set {quoted(workspace_set or '')} --text --full",
+            f"node {quoted(cli)} ws status --root {quoted(root)} {scope} --text --full".strip(),
         ]
     if head_changed(data):
         return [
             "Current HEAD changed after this run. Start a fresh run, sync current code, then record the relevant remote test.",
-            remote_loop_command(cli, root, workspace_set),
+            remote_loop_command(cli, root, workspace_set, feat),
         ]
 
     next_actions = data.get("next_actions") or []
@@ -376,16 +405,22 @@ def primary_actions(data: dict, run_lint: Optional[dict], cli: Path, root: Path)
     if history_counts(run_lint)["errors"]:
         return [
             "Current workspace is usable; review invalid run history when convenient.",
-            archive_plan_command(cli, root),
+            archive_plan_command(cli, root, workspace_set, feat),
         ]
     return ["No immediate action is required for the configured run stages."]
 
 
-def secondary_actions(run_lint: Optional[dict], cli: Path, root: Path) -> list[str]:
+def secondary_actions(
+    run_lint: Optional[dict],
+    cli: Path,
+    root: Path,
+    workspace_set: Optional[str] = None,
+    feat: Optional[str] = None,
+) -> list[str]:
     if history_counts(run_lint)["errors"]:
         return [
             "Run history has invalid metadata. Preview cleanup without moving anything:",
-            archive_plan_command(cli, root),
+            archive_plan_command(cli, root, workspace_set, feat),
         ]
     return []
 
@@ -434,7 +469,7 @@ def emit_history_health(run_lint: Optional[dict], cli: Path, root: Path) -> None
         if shown >= 3:
             break
     if errors:
-        print(f"- Cleanup plan: {display_command(archive_plan_command(cli, root), cli, root)}")
+        print(f"- Cleanup plan: {display_command(archive_plan_command(cli, root, data.get('workspace_set') or None, data.get('feat') or None), cli, root)}")
 
 
 def emit_brief_summary(
@@ -448,12 +483,15 @@ def emit_brief_summary(
     workspace = data.get("workspace") or "-"
     run_id = data.get("run_id") or "-"
     workspace_set = data.get("workspace_set") or "-"
+    feat = data.get("feat") or None
     image = data.get("image") or {}
     publish = data.get("publish") or {}
 
     print("Devteam Status")
     print(f"- Workspace: {workspace}")
     print(f"- Track: {workspace_set}")
+    if feat:
+        print(f"- Feature: {feat}")
     print(f"- Run: {run_id}{' (latest)' if selected_latest and run_id != '-' else ''}")
     print(f"- State: {phase_brief(data)}")
     print(f"- Worktree: {worktree_brief(data)}")
@@ -476,7 +514,7 @@ def emit_brief_summary(
     for item in primary_actions(data, run_lint, cli, root):
         print(f"- {display_command(item, cli, root)}")
 
-    secondary = secondary_actions(run_lint, cli, root)
+    secondary = secondary_actions(run_lint, cli, root, data.get("workspace_set") or None, data.get("feat") or None)
     if secondary:
         print("\nSecondary")
         for item in secondary:
@@ -497,12 +535,15 @@ def emit_full_summary(
     workspace = data.get("workspace") or "-"
     run_id = data.get("run_id") or "-"
     workspace_set = data.get("workspace_set") or "-"
+    feat = data.get("feat") or None
     phase = data.get("phase") or {}
     workspace_status = data.get("workspace_status") or {}
 
     print("Devteam Status")
     print(f"- Workspace: {workspace}")
-    print(f"- Workspace set: {workspace_set}")
+    print(f"- Track: {workspace_set}")
+    if feat:
+        print(f"- Feature: {feat}")
     if run_id != "-":
         suffix = " (latest)" if selected_latest else ""
         print(f"- Run: {run_id}{suffix}")
@@ -630,10 +671,13 @@ def emit_brief_workspace_summary(
 ) -> None:
     workspace = data.get("workspace") or "-"
     workspace_set = data.get("workspace_set") or "-"
+    feat = data.get("feat") or None
     totals = data.get("totals") or {}
     print("Devteam Workspace")
     print(f"- Workspace: {workspace}")
     print(f"- Track: {workspace_set}")
+    if feat:
+        print(f"- Feature: {feat}")
     print(
         "- Worktrees: "
         f"{totals.get('present', 0)}/{totals.get('worktrees', 0)} present, "
@@ -653,19 +697,21 @@ def emit_brief_workspace_summary(
 
     print("\nPrimary Next")
     if totals.get("missing", 0) > 0:
+        scope = scope_command(workspace_set, feat)
         print(
             "- "
             + display_command(
-                f"node {quoted(cli)} ws materialize --root {quoted(root)} --set {quoted(workspace_set)}",
+                f"node {quoted(cli)} ws materialize --root {quoted(root)} {scope}".strip(),
                 cli,
                 root,
             )
         )
     elif totals.get("dirty", 0) > 0:
+        scope = scope_command(workspace_set, feat)
         print(
             "- "
             + display_command(
-                f"node {quoted(cli)} ws status --root {quoted(root)} --set {quoted(workspace_set)} --text --full",
+                f"node {quoted(cli)} ws status --root {quoted(root)} {scope} --text --full".strip(),
                 cli,
                 root,
             )
@@ -673,7 +719,7 @@ def emit_brief_workspace_summary(
     else:
         print("- No local workspace action is required.")
 
-    secondary = secondary_actions(run_lint, cli, root)
+    secondary = secondary_actions(run_lint, cli, root, workspace_set if workspace_set != "-" else None, feat if feat != "-" else None)
     if secondary:
         print("\nSecondary")
         for item in secondary:
@@ -692,10 +738,13 @@ def emit_full_workspace_summary(
 ) -> None:
     workspace = data.get("workspace") or "-"
     workspace_set = data.get("workspace_set") or "-"
+    feat = data.get("feat") or None
     totals = data.get("totals") or {}
     print("Devteam Workspace")
     print(f"- Workspace: {workspace}")
-    print(f"- Workspace set: {workspace_set}")
+    print(f"- Track: {workspace_set}")
+    if feat:
+        print(f"- Feature: {feat}")
     print(
         "- Worktrees: "
         f"{totals.get('present', 0)}/{totals.get('worktrees', 0)} present, "
@@ -729,7 +778,8 @@ def emit_full_workspace_summary(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Summarize devteam workspace status.")
     parser.add_argument("--root", help="Workspace root. Defaults to cwd/parents with .devteam/config.yaml, then DEVTEAM_ROOT.")
-    parser.add_argument("--set", help="Workspace set. Defaults to DEVTEAM_TRACK, then .devteam/config.yaml defaults.workspace_set.")
+    parser.add_argument("--set", help="Track. Defaults to DEVTEAM_TRACK, then .devteam/config.yaml defaults.track.")
+    parser.add_argument("--feat", help="Feature under the selected track. Defaults to DEVTEAM_FEAT, then defaults.feat.")
     parser.add_argument("--run", help="Run id. Defaults to latest run if present.")
     parser.add_argument("--no-run", action="store_true", help="Do not auto-select latest run.")
     parser.add_argument("--cli", help="Path to devteam.cjs. Defaults to DEVTEAM_CLI, then bundled plugin/repo locations.")
@@ -744,10 +794,12 @@ def main() -> None:
         raise SystemExit(f"devteam CLI not found: {cli}")
 
     selected_set = args.set or env_track()
-    workspace_data = run_workspace_status(cli, root, selected_set)
+    selected_feat = args.feat or env_feat()
+    workspace_data = run_workspace_status(cli, root, selected_set, selected_feat)
     workspace_set = selected_set or workspace_data.get("workspace_set") or None
-    run_list = run_session_list(cli, root, workspace_set=workspace_set)
-    run_lint = run_session_lint(cli, root, workspace_set=workspace_set)
+    feat = selected_feat or workspace_data.get("feat") or None
+    run_list = run_session_list(cli, root, workspace_set=workspace_set, feat=feat)
+    run_lint = run_session_lint(cli, root, workspace_set=workspace_set, feat=feat)
     if args.no_run and not args.run:
         data = workspace_data
         if args.raw_json:
@@ -762,7 +814,7 @@ def main() -> None:
 
     run_id = args.run
     selected_latest = run_id is None
-    data = run_devteam_status(cli, root, run_id, None if run_id else workspace_set)
+    data = run_devteam_status(cli, root, run_id, None if run_id else workspace_set, None if run_id else feat)
     if args.raw_json:
         payload = {"status": data, "recent_runs": run_list, "session_lint": run_lint}
         print(json.dumps(payload, indent=2, ensure_ascii=False))

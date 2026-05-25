@@ -35,18 +35,20 @@ Route `/devteam <action>` to the matching lightweight command:
 
 | Action | Command | Purpose |
 | --- | --- | --- |
-| `workspace` | `workspace scaffold|onboard|context` | Workspace skeleton and agent onboarding/context |
+| `workspace` | `workspace scaffold|onboard|context` | Workspace layout and agent onboarding/context |
 | `track` | `track list|status|context|bind|use` | Track discovery and session-local binding |
 | `presence` | `presence list|touch|clear` | Concurrent session soft-lock hints |
 | `session` | `session start|status|handoff|record|list|lint|...` | Run lifecycle, evidence, and handoff |
 | `status` | `status` | One-screen latest run status |
 | `doctor` | `doctor [agent-onboarding]` | Workspace/env/sync/onboarding checks |
 | `ws` | `ws status|materialize|publish-plan|publish` | Local worktree inventory and publish planning |
-| `env` | `env list|doctor|refresh` | Remote/k8s env profile checks and refresh |
+| `env` | `env list|show|environments|doctor|refresh` | Machine/cluster environments plus remote/k8s env profile checks and refresh |
+| `capability` | `capability list|show` | CRD-like validation/build/deploy capability standards |
+| `validate` | `validate list|plan` | CR-like validation instance selection and read-only plans |
 | `sync` | `sync plan|apply|status` | Local-to-remote sync planning/execution |
 | `remote-loop` | `remote-loop plan|start|doctor|refresh|sync|record-test|status` | Track-scoped remote validation loop |
 | `image` | `image plan|prepare|record` | Image contract, context, and evidence |
-| `deploy` | `deploy plan|record|verify-record` | k8s pre-production deploy evidence |
+| `deploy` | `deploy list|plan|record|verify-record` | CR-like k8s deploy instance planning and pre-production evidence |
 | `skill` | `skill list|status|lint|install` | Devteam Codex skill management |
 | `knowledge` | `knowledge list|search|lint|capture` | Recipes/wiki/skills knowledge layer |
 | `vllm-opt` | `vllm-opt` | vLLM performance regression profiling and optimization guidance |
@@ -54,9 +56,10 @@ Route `/devteam <action>` to the matching lightweight command:
 ## Track Discipline
 
 - Treat a devteam workspace as multi-repo and multi-track.
-- Do not assume `defaults.workspace_set` is the current session track.
+- Do not assume `defaults.track` is the current session track.
 - Ask the user to choose a track, or pass `--set <track>` / use
-  `DEVTEAM_TRACK` for the current session.
+  `DEVTEAM_TRACK` for the current session. Use `--feat <feat>` /
+  `DEVTEAM_FEAT` when working on a feature under that track.
 - Use presence as a hint for concurrent sessions, not as a hard lock.
 
 ## Mutation Discipline

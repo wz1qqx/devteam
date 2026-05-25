@@ -27,11 +27,12 @@ not already provide `DEVTEAM_TRACK`, first show the track picker:
 python3 scripts/devteam_console.py --root <workspace-root> --tracks-only
 ```
 
-Ask the user to choose by number or track name. After the user chooses, reopen
-the console with `--set <workspace-set>`:
+Ask the user to choose by number or track name. If they also name a feature
+under that track, pass `--feat <feat>`. After the user chooses, reopen the
+console with `--set <track>` and optional `--feat <feat>`:
 
 ```bash
-python3 scripts/devteam_console.py --root <workspace-root> --set <workspace-set>
+python3 scripts/devteam_console.py --root <workspace-root> --set <track> [--feat <feat>]
 ```
 
 Do not ask the user to run `export DEVTEAM_TRACK` manually. Passing `--set` is
@@ -50,8 +51,8 @@ For parallel terminal sessions, the user may still bind a track per shell with
 `DEVTEAM_TRACK`, but do not rely on mutating the workspace default track when
 multiple sessions may be active.
 
-If the shell already has `DEVTEAM_TRACK`, or the user explicitly names a track,
-run the bundled console script directly:
+If the shell already has `DEVTEAM_TRACK` and optionally `DEVTEAM_FEAT`, or the
+user explicitly names a track/feature, run the bundled console script directly:
 
 ```bash
 python3 scripts/devteam_console.py --root <workspace-root>
@@ -60,7 +61,7 @@ python3 scripts/devteam_console.py --root <workspace-root>
 If the user names a track:
 
 ```bash
-python3 scripts/devteam_console.py --root <workspace-root> --set <workspace-set>
+python3 scripts/devteam_console.py --root <workspace-root> --set <track> [--feat <feat>]
 ```
 
 If the user names a run:
@@ -77,7 +78,7 @@ should feel like a daily work entrypoint rather than a command reference page.
 
 Relay the script output directly or summarize it with the same structure:
 
-- current workspace, active track, latest run, phase
+- current workspace, active track, optional feature, latest run, phase
 - track source (`--set`, `DEVTEAM_TRACK`, single track, or workspace default)
 - track picker dashboard with aliases, dirty/missing worktrees, latest run,
   phase, build profile, active session presence, and next action when no track

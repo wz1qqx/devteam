@@ -32,8 +32,9 @@ python3 scripts/devteam_status_summary.py --root <workspace-root>
 Default output is the compact daily dashboard: selected track/run conclusion,
 worktree state, stale evidence, gates, primary next action, recent runs, and
 history cleanup hint. It scopes the selected run and recent run list to the
-current session track. Track selection order is `--set`, then `DEVTEAM_TRACK`
-or `DEVTEAM_WORKSPACE_SET`, then `.devteam/config.yaml defaults.workspace_set`.
+current session track. Track selection order is `--set`, then `DEVTEAM_TRACK`,
+then `.devteam/config.yaml defaults.track`. Feature
+selection is `--feat`, then `DEVTEAM_FEAT`, then `defaults.feat`.
 Use `--full` only when the user
 asks for detailed evidence, gate internals, dirty-file details, or run-history
 issue details.
@@ -51,17 +52,16 @@ DEVTEAM_BIN="${DEVTEAM_CLI:-${HOME}/Documents/devteam/lib/devteam.cjs}"
 [ -f "$DEVTEAM_BIN" ] || DEVTEAM_BIN="${HOME}/.claude/plugins/marketplaces/devteam/lib/devteam.cjs"
 [ -f "$DEVTEAM_BIN" ] || DEVTEAM_BIN=$(ls ~/.claude/plugins/cache/devteam/devteam/*/lib/devteam.cjs 2>/dev/null | tail -1)
 node "$DEVTEAM_BIN" status --root <root> --json
-node "$DEVTEAM_BIN" status --root <root> --set <active-workspace-set> --json
-node "$DEVTEAM_BIN" session list --root <root> --set <active-workspace-set> --limit 3
-node "$DEVTEAM_BIN" session lint --root <root> --set <active-workspace-set>
+node "$DEVTEAM_BIN" status --root <root> --set <track> [--feat <feat>] --json
+node "$DEVTEAM_BIN" session list --root <root> --set <track> [--feat <feat>] --limit 3
+node "$DEVTEAM_BIN" session lint --root <root> --set <track> [--feat <feat>]
 node "$DEVTEAM_BIN" session archive-plan --root <root> --text
 ```
 
 It auto-selects the latest readable `.devteam/runs/<run-id>` when present,
-skipping malformed, deleted-track, closed, and superseded history. Use
+skipping malformed, deleted track, closed, and superseded history. Use
 `--no-run` only if the user wants workspace state without run evidence; that
-mode uses the current `.devteam/config.yaml` default workspace set, which may
-differ from the latest run's workspace set. If history lint reports error-level
+mode uses the current selected track/feature. If history lint reports error-level
 run metadata issues, the script prints a cleanup plan command but does not move
 or delete anything.
 
@@ -69,14 +69,14 @@ or delete anything.
 
 Summarize these points:
 
-- workspace root, workspace set, run id
+- workspace root, track, optional feature, run id
 - phase and reason
 - worktree count, dirty worktrees, branch/head
 - evidence: sync, test, publish, image-build, deploy, deploy-verify
 - gates: remote validation, publish, image build, deploy, deploy-verify
 - image profile completeness and planned image tag
 - recent run history when available
-- history health: unreadable/deleted-track runs and stale evidence warnings
+- history health: unreadable or deleted track runs and stale evidence warnings
 - one to three concrete next actions
 
 For normal answers, lead with the compact conclusion and primary next action.
@@ -85,10 +85,10 @@ when a specific detail changes the recommended next action.
 
 When evidence is stale because the current worktree HEAD no longer matches the
 run snapshot, do not recommend writing more evidence to that old run. The
-primary next action should be a fresh `remote-loop start --set <track>` for the
-current HEAD, followed by sync and the relevant remote tests. Treat the old run
-as historical evidence unless the user explicitly asks about stale-head escape
-hatches.
+primary next action should be a fresh
+`remote-loop start --set <track> [--feat <feat>]` for the current HEAD,
+followed by sync and the relevant remote tests. Treat the old run as historical
+evidence unless the user explicitly asks about stale-head escape hatches.
 
 If the user decides an old stale run has been replaced by a newer run, prefer
 `session supersede --run <old-run> --by <new-run> --reason "<why>"` over
@@ -96,10 +96,11 @@ archiving. Superseded or closed runs stay auditable in `.devteam/runs/`, but
 default status/list/lint no longer count their stale-head warnings; use
 `session list --all` or `session lint --all` for full history.
 
-For multiple stale runs on the same track, use `session supersede-plan` first.
-It only proposes old stale runs when the same track has a newer open run, and
-it blocks the latest stale run so the active track signal is not hidden. Apply
-the plan with `session supersede-stale --yes` only after reviewing it.
+For multiple stale runs on the same track/feature, use `session supersede-plan`
+first. It only proposes old stale runs when the same track/feature has a newer
+open run, and it blocks the latest stale run so the active signal is not
+hidden. Apply the plan with `session supersede-stale --yes` only after reviewing
+it.
 
 Interpretation rules:
 

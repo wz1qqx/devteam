@@ -1,7 +1,7 @@
 ---
 name: devteam:env
-description: Environment profiles — list, doctor, or refresh remote/k8s profiles
-argument-hint: "<list|doctor|refresh> [--root <path>] [--profile <name>] [--remote] [--yes] [--run <id>]"
+description: Environment registry — list profiles/environments, inspect machine facts, doctor, or refresh remote/k8s profiles
+argument-hint: "<list|show|environments|doctor|runtime|refresh> [--root <path>] [--set <track>] [--feat <feat>] [--env <environment>] [--profile <name>] [--remote] [--yes] [--run <id>] [--text]"
 allowed-tools:
   - Read
   - Bash
@@ -9,7 +9,7 @@ allowed-tools:
   - Grep
 ---
 <objective>
-Inspect lightweight remote_dev and k8s environment profiles, and refresh vLLM editable remote venvs when explicitly requested.
+Inspect machine/cluster environments plus lightweight remote_dev and k8s environment profiles, and refresh vLLM editable remote venvs when explicitly requested.
 </objective>
 
 <context>
@@ -27,5 +27,5 @@ DEVTEAM_BIN="${HOME}/.claude/plugins/marketplaces/devteam/lib/devteam.cjs"
 If no `--root` is provided, use the current workspace or nearest parent containing `.devteam/config.yaml`. Do not select a global active track; ask the user to choose a track or pass `--set <track>` when the command needs one.
 
 **Step 2**: Execute:
-Run `node "$DEVTEAM_BIN" env $ARGUMENTS`. For doctor, display local command checks and missing profile fields. --remote performs explicit read-only SSH checks. With doctor --remote --run <id>, append an env-doctor event to that run. For refresh, show the generated command unless --yes is present; only execute remote editable venv refresh with explicit --yes. With refresh --yes --run <id>, append an env-refresh event to that run.
+Run `node "$DEVTEAM_BIN" env $ARGUMENTS`. list prints lane-local env_profiles plus the shared machine/cluster environments registry. show/environments inspect fixed machine or cluster facts, compatible capabilities, and status without remote side effects. runtime prints the effective track/feature env exports, including inherited environment proxy, work_dir/source_dir/venv, K8s namespace/kubeconfig, and selected worktree remote paths; source a run's `.devteam/runs/<id>/runtime.sh` before remote or K8s helper commands. For doctor, display local command checks and missing profile fields for env_profiles. --remote performs explicit read-only SSH checks. With doctor --remote --run <id>, append an env-doctor event to that run. For refresh, show the generated command unless --yes is present; only execute remote editable venv refresh with explicit --yes. With refresh --yes --run <id>, append an env-refresh event to that run.
 </process>

@@ -9,9 +9,11 @@ Workspace:
 - Root: `{{WORKSPACE_ROOT}}`
 - Config: `{{CONFIG_PATH}}`
 - Default track: `{{DEFAULT_TRACK}}`
+- Default feature: `{{DEFAULT_FEAT}}`
 
-The `.devteam/config.yaml` file is the machine-readable source of truth. This
-file is the agent onboarding entrypoint.
+The machine-readable workspace model starts at `.devteam/config.yaml` and may
+include shared registries plus lane files. This file is the agent onboarding
+entrypoint.
 
 ## First Action
 
@@ -22,17 +24,19 @@ changes:
 node "{{DEVTEAM_CLI}}" workspace context --root "$PWD" --for codex --text
 ```
 
-Then choose or confirm a track:
+Then choose or confirm a track and optional feature:
 
 ```bash
 node "{{DEVTEAM_CLI}}" track list --root "$PWD" --active-only --text
 node "{{DEVTEAM_CLI}}" track context --root "$PWD" --set "<track>" --text
+node "{{DEVTEAM_CLI}}" track context --root "$PWD" --set "<track>" --feat "<feat>" --text
 ```
 
-For a compact run/worktree/evidence view after selecting a track:
+For a compact run/worktree/evidence view after selecting a track or feature:
 
 ```bash
 node "{{DEVTEAM_CLI}}" status --root "$PWD" --set "<track>"
+node "{{DEVTEAM_CLI}}" status --root "$PWD" --set "<track>" --feat "<feat>"
 ```
 
 If Codex/Claude skills are available, use `devteam-console` as the daily
@@ -40,25 +44,29 @@ workspace entrypoint and `devteam-status` for compact read-only summaries.
 
 ## Track Model
 
-This workspace may contain multiple tracks. A session should bind itself to a
-track instead of assuming a global active track.
+This workspace may contain multiple tracks, and each track may contain multiple
+features. A session should bind itself to a track plus optional feature instead
+of assuming a global active track.
 
 Before editing code:
 
 1. List or inspect available tracks.
-2. Ask the user which track this session should work on unless the request
-   clearly names one.
-3. Start or select a run for that track.
-4. Work only inside the worktrees belonging to that track.
+2. Ask the user which track and feature this session should work on unless the
+   request clearly names them.
+3. Start or select a run for that track/feature scope.
+4. Work only inside the worktrees belonging to that track, or only the feature
+   worktrees when `--feat` is selected.
 
 Prefer session-local selection:
 
 ```bash
 node "{{DEVTEAM_CLI}}" session start --root "$PWD" --set "<track>" --text
+node "{{DEVTEAM_CLI}}" session start --root "$PWD" --set "<track>" --feat "<feat>" --text
 ```
 
 Do not use `track use` to mutate the workspace default when multiple sessions
-may be active. Use `--set <track>` or a session-local `DEVTEAM_TRACK` instead.
+may be active. Use `--set <track>` plus optional `--feat <feat>`, or
+session-local `DEVTEAM_TRACK`/`DEVTEAM_FEAT`, instead.
 
 ## Current Tracks
 
@@ -72,7 +80,7 @@ All configured tracks:
 
 ## Workspace Boundaries
 
-{{OLD_WORKSPACE_BLOCK}}
+{{REFERENCE_WORKSPACE_BLOCK}}
 
 Repos and worktrees should be managed through the devteam workspace layout, not
 by ad hoc cloning into unrelated directories.
@@ -81,7 +89,7 @@ by ad hoc cloning into unrelated directories.
 
 The expected flow is:
 
-1. Choose a track.
+1. Choose a track and optional feature.
 2. Inspect current worktree status.
 3. Start or continue a run.
 4. Make local code changes.
@@ -130,4 +138,5 @@ Do not run destructive git commands unless explicitly requested. Do not publish,
 build, deploy, or mutate remote state without clear user intent.
 
 When uncertain, open the dynamic workspace context, ask the user to choose the
-track for the current session, then inspect the selected track context.
+track and optional feature for the current session, then inspect the selected
+track context.

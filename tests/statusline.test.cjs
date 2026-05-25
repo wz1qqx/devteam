@@ -32,7 +32,7 @@ function createWorkspace() {
     '    repo: repo-a',
     '    path: repo-a-feature',
     '    branch: feature',
-    'workspace_sets:',
+    'tracks:',
     '  feature-a:',
     '    worktrees: ["repo_a__feature"]',
     '  feature-b:',
@@ -41,7 +41,7 @@ function createWorkspace() {
     '  local:',
     '    type: local',
     'defaults:',
-    '  workspace_set: feature-a',
+    '  track: feature-a',
     '  env: local',
   ].join('\n') + '\n');
   return root;

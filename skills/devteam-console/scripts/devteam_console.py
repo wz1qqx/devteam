@@ -65,7 +65,11 @@ def find_root(root_arg: Optional[str]) -> Path:
 
 
 def env_track() -> Optional[str]:
-    return os.environ.get("DEVTEAM_TRACK") or os.environ.get("DEVTEAM_WORKSPACE_SET")
+    return os.environ.get("DEVTEAM_TRACK")
+
+
+def env_feat() -> Optional[str]:
+    return os.environ.get("DEVTEAM_FEAT") or os.environ.get("DEVTEAM_FEATURE")
 
 
 def run_json_result(cli: Path, root: Path, args: list[str]) -> tuple[Optional[dict], Optional[str]]:
@@ -95,6 +99,24 @@ def run_text(cli: Path, root: Path, args: list[str]) -> Optional[str]:
 
 def quoted(value: object) -> str:
     return json.dumps(str(value))
+
+
+def scope_args(track: Optional[str], feat: Optional[str] = None) -> list[str]:
+    args = []
+    if track:
+        args.extend(["--set", str(track)])
+    if feat:
+        args.extend(["--feat", str(feat)])
+    return args
+
+
+def scope_text(track: Optional[str], feat: Optional[str] = None) -> str:
+    parts = []
+    if track:
+        parts.extend(["--set", str(track)])
+    if feat:
+        parts.extend(["--feat", str(feat)])
+    return " ".join(parts)
 
 
 def compact_list(values: object, max_items: int = 4) -> str:
@@ -223,8 +245,8 @@ def active_session_text(item: dict) -> str:
     return label
 
 
-def emit_presence_summary(cli: Path, root: Path, track: str, current_session: Optional[str]) -> None:
-    payload = run_json(cli, root, ["presence", "list", "--set", track])
+def emit_presence_summary(cli: Path, root: Path, track: str, feat: Optional[str], current_session: Optional[str]) -> None:
+    payload = run_json(cli, root, ["presence", "list", *scope_args(track, feat)])
     if not payload:
         return
     entries = payload.get("entries") or []
@@ -233,9 +255,9 @@ def emit_presence_summary(cli: Path, root: Path, track: str, current_session: Op
         if str(item.get("session_id") or "") != str(current_session or "")
     ]
     if not entries:
-        print("- Active sessions on track: 0")
+        print("- Active sessions on scope: 0")
         return
-    print(f"- Active sessions on track: {len(entries)}")
+    print(f"- Active sessions on scope: {len(entries)}")
     if other_entries:
         shown = ", ".join(active_session_text(item) for item in other_entries[:3])
         more = f", +{len(other_entries) - 3}" if len(other_entries) > 3 else ""
@@ -268,11 +290,13 @@ def primary_next(status: dict) -> list[str]:
     if actions:
         return [str(item) for item in actions[:2]]
     workspace_set = status.get("workspace_set") or ""
+    feat = status.get("feat") or None
+    scope = scope_text(workspace_set, feat)
     totals = status.get("workspace_status") or {}
     if totals.get("dirty", 0):
         return [
             "Review local dirty files before syncing or publishing.",
-            f"dt ws status --set {workspace_set} --text --full",
+            f"dt ws status {scope} --text --full".strip(),
         ]
     return ["No immediate action is required."]
 
@@ -367,19 +391,23 @@ def emit_track_picker(track_list: dict, cli: Path, root: Path) -> None:
     print("```")
 
 
-def emit_bootstrap(cli: Path, root: Path, track: Optional[str]) -> None:
+def emit_bootstrap(cli: Path, root: Path, track: Optional[str], feat: Optional[str] = None) -> None:
     print("\nBootstrap")
     print("```bash")
     print(f"cd {quoted(root)}")
     print(f"export DEVTEAM_BIN={quoted(cli)}")
     if track:
         print(f"export DEVTEAM_TRACK={quoted(track)}")
+    if feat:
+        print(f"export DEVTEAM_FEAT={quoted(feat)}")
     print(f"dt() {{ node \"$DEVTEAM_BIN\" \"$@\" --root {quoted(root)}; }}")
     print("```")
 
 
 def emit_command_groups(status: dict, cli: Path, root: Path, full: bool, track_profile: Optional[dict] = None) -> None:
     workspace_set = status.get("workspace_set") or "<track>"
+    feat = status.get("feat") or None
+    scope = scope_text(workspace_set, feat)
     run_id = status.get("run_id") or "<run-id>"
     profiles = status.get("profiles") or {}
     track_profile = track_profile or {}
@@ -400,7 +428,7 @@ def emit_command_groups(status: dict, cli: Path, root: Path, full: bool, track_p
     print("\nControl Panels")
     print("- Status:")
     emit_cmd("track status --text")
-    emit_cmd(f"status --set {workspace_set}")
+    emit_cmd(f"status {scope}".strip())
     emit_cmd("session list --text")
 
     print("- Track:")
@@ -409,16 +437,16 @@ def emit_command_groups(status: dict, cli: Path, root: Path, full: bool, track_p
     emit_cmd("track use <track> --dry-run")
 
     print("- Worktree:")
-    emit_cmd(f"ws status --set {workspace_set} --text --full")
-    emit_cmd(f"ws publish-plan --set {workspace_set} --run {run_id}")
+    emit_cmd(f"ws status {scope} --text --full".strip())
+    emit_cmd(f"ws publish-plan {scope} --run {run_id}".strip())
     if stale_run:
         print("  - publish is blocked for this run; refresh validation on a fresh run first")
     else:
-        emit_cmd(f"ws publish --set {workspace_set} --run {run_id} --yes")
+        emit_cmd(f"ws publish {scope} --run {run_id} --yes".strip())
 
     print("- Run:")
-    emit_cmd(f"remote-loop plan --set {workspace_set}")
-    emit_cmd(f"remote-loop start --set {workspace_set} --text")
+    emit_cmd(f"remote-loop plan {scope}".strip())
+    emit_cmd(f"remote-loop start {scope} --text".strip())
     emit_cmd(f"session status --run {run_id} --text")
     if stale_run:
         print("  - current run is stale; start a fresh run before recording test evidence")
@@ -438,34 +466,34 @@ def emit_command_groups(status: dict, cli: Path, root: Path, full: bool, track_p
 
     print("- Sync:")
     sync_hint = sync_profile or "<env-profile>"
-    emit_cmd(f"sync plan --set {workspace_set} --profile {sync_hint} --dirty-only")
+    emit_cmd(f"sync plan {scope} --profile {sync_hint} --dirty-only".strip())
     if stale_run:
         print("  - current run is stale; start a fresh run before sync apply --run")
     else:
-        emit_cmd(f"sync apply --set {workspace_set} --profile {sync_hint} --dirty-only --run {run_id} --yes")
+        emit_cmd(f"sync apply {scope} --profile {sync_hint} --dirty-only --run {run_id} --yes".strip())
     if full:
-        emit_cmd(f"sync plan --set {workspace_set} --profile {sync_hint} --branch-patch")
+        emit_cmd(f"sync plan {scope} --profile {sync_hint} --branch-patch".strip())
 
     image_label = "Image" if run_image_enabled else "Image (track optional)"
     print(f"- {image_label}:")
     image_hint = image_profile or "<build-profile>"
-    emit_cmd(f"image plan --set {workspace_set} --profile {image_hint} --run {run_id}")
+    emit_cmd(f"image plan {scope} --profile {image_hint} --run {run_id}".strip())
     if stale_run:
         print("  - current run is stale; start a fresh run before preparing image context")
         print("  - current run is stale; start a fresh run before recording image-build evidence")
     else:
-        emit_cmd(f"image prepare --set {workspace_set} --profile {image_hint} --run {run_id}")
+        emit_cmd(f"image prepare {scope} --profile {image_hint} --run {run_id}".strip())
         emit_cmd(f"image record --run {run_id} --profile {image_hint} --image <image-ref>")
 
     deploy_label = "Deploy" if run_deploy_enabled else "Deploy (track optional)"
     print(f"- {deploy_label}:")
     deploy_hint = deploy_profile or "<deploy-profile>"
-    emit_cmd(f"deploy plan --set {workspace_set} --profile {deploy_hint} --run {run_id}")
+    emit_cmd(f"deploy plan {scope} --profile {deploy_hint} --run {run_id}".strip())
     if stale_run:
         print("  - current run is stale; start a fresh run before recording deploy evidence")
     else:
-        emit_cmd(f"deploy record --set {workspace_set} --profile {deploy_hint} --run {run_id} --image <image-ref>")
-        emit_cmd(f'deploy verify-record --set {workspace_set} --profile {deploy_hint} --run {run_id} --status passed --summary "..."')
+        emit_cmd(f"deploy record {scope} --profile {deploy_hint} --run {run_id} --image <image-ref>".strip())
+        emit_cmd(f'deploy verify-record {scope} --profile {deploy_hint} --run {run_id} --status passed --summary "..."'.strip())
 
     print("- Skills:")
     emit_cmd("skill list --text")
@@ -475,6 +503,8 @@ def emit_command_groups(status: dict, cli: Path, root: Path, full: bool, track_p
 
 def emit_daily_shortcuts(status: dict, cli: Path, root: Path, track_profile: Optional[dict] = None) -> None:
     workspace_set = status.get("workspace_set") or "<track>"
+    feat = status.get("feat") or None
+    scope = scope_text(workspace_set, feat)
     run_id = status.get("run_id")
     profiles = status.get("profiles") or {}
     track_profile = track_profile or {}
@@ -487,16 +517,16 @@ def emit_daily_shortcuts(status: dict, cli: Path, root: Path, track_profile: Opt
 
     print("\nDaily Shortcuts")
     print("- Inspect:")
-    emit_cmd(f"status --set {workspace_set}")
-    emit_cmd(f"track status --set {workspace_set} --text")
-    emit_cmd(f"ws status --set {workspace_set} --text")
+    emit_cmd(f"status {scope}".strip())
+    emit_cmd(f"track status {scope} --text".strip())
+    emit_cmd(f"ws status {scope} --text".strip())
 
     print("- Work loop:")
-    emit_cmd(f"remote-loop plan --set {workspace_set} --text")
-    emit_cmd(f"remote-loop start --set {workspace_set} --text")
+    emit_cmd(f"remote-loop plan {scope} --text".strip())
+    emit_cmd(f"remote-loop start {scope} --text".strip())
     if run_id:
         emit_cmd(f"session status --run {run_id} --text")
-    emit_cmd(f"session list --set {workspace_set} --text")
+    emit_cmd(f"session list {scope} --text".strip())
 
     print("- Verify / build:")
     env_hint = env_profile or "<env-profile>"
@@ -510,11 +540,11 @@ def emit_daily_shortcuts(status: dict, cli: Path, root: Path, track_profile: Opt
     if stale_run:
         print("  - image planning belongs on the fresh run after re-validation")
     elif image_profile and run_id:
-        emit_cmd(f"image plan --set {workspace_set} --profile {image_profile} --run {run_id}")
+        emit_cmd(f"image plan {scope} --profile {image_profile} --run {run_id}".strip())
     elif image_profile:
-        emit_cmd(f"image plan --set {workspace_set} --profile {image_profile}")
+        emit_cmd(f"image plan {scope} --profile {image_profile}".strip())
     else:
-        emit_cmd(f"image plan --set {workspace_set} --profile <build-profile>")
+        emit_cmd(f"image plan {scope} --profile <build-profile>".strip())
 
     print("- Skills:")
     emit_cmd("skill list --text")
@@ -524,7 +554,8 @@ def emit_daily_shortcuts(status: dict, cli: Path, root: Path, track_profile: Opt
 def main() -> None:
     parser = argparse.ArgumentParser(description="Open the devteam workspace console.")
     parser.add_argument("--root", help="Workspace root. Defaults to cwd/parents with .devteam/config.yaml, then DEVTEAM_ROOT.")
-    parser.add_argument("--set", help="Workspace set / track. Defaults to DEVTEAM_TRACK, then workspace default.")
+    parser.add_argument("--set", help="Track. Defaults to DEVTEAM_TRACK, then workspace default.")
+    parser.add_argument("--feat", help="Feature under the selected track. Defaults to DEVTEAM_FEAT, then workspace default.")
     parser.add_argument("--run", help="Run id.")
     parser.add_argument("--cli", help="Path to devteam.cjs. Defaults to DEVTEAM_CLI, then bundled plugin/repo locations.")
     parser.add_argument("--full", action="store_true", help="Print a larger command surface.")
@@ -542,6 +573,7 @@ def main() -> None:
         raise SystemExit(f"devteam CLI not found: {cli}")
 
     selected_set = args.set or env_track()
+    selected_feat = args.feat or env_feat()
     if args.tracks_only or (not selected_set and not args.run and not args.use_default):
         track_list_args = ["track", "list"]
         if not args.all_tracks:
@@ -560,7 +592,7 @@ def main() -> None:
     if args.run:
         status_args.extend(["--run", args.run])
     elif selected_set:
-        status_args.extend(["--set", selected_set])
+        status_args.extend(scope_args(selected_set, selected_feat))
     status = run_json(cli, root, status_args)
     if not status:
         sys.stderr.write("Failed to read devteam status.\n")
@@ -568,18 +600,21 @@ def main() -> None:
     track_status = None
     track_profile = None
     if selected_set:
-        track_status = run_json(cli, root, ["track", "status", "--set", selected_set, "--no-runtime"])
+        track_status = run_json(cli, root, ["track", "status", *scope_args(selected_set, selected_feat), "--no-runtime"])
         if track_status:
             track_profile = track_status.get("track") or {}
 
     print("Devteam Console")
     print(f"- Workspace: {status.get('workspace') or str(root)}")
     track = status.get("workspace_set") or selected_set
+    feat = status.get("feat") or selected_feat
     print(f"- Track: {track or '-'}")
+    if feat:
+        print(f"- Feature: {feat}")
     track_source = "--set" if args.set else ("DEVTEAM_TRACK" if env_track() else ("single track" if selected_set else "workspace default"))
     print(f"- Track source: {track_source}")
     if track and not args.no_presence:
-        presence_args = ["presence", "touch", "--set", str(track), "--tool", "devteam-console"]
+        presence_args = ["presence", "touch", *scope_args(str(track), feat), "--tool", "devteam-console"]
         if args.run:
             presence_args.extend(["--run", args.run])
         if args.session_id:
@@ -589,7 +624,7 @@ def main() -> None:
         presence, presence_error = run_json_result(cli, root, presence_args)
         if presence:
             print(f"- Presence: {presence.get('session_id')} touched")
-            emit_presence_summary(cli, root, str(track), presence.get("session_id"))
+            emit_presence_summary(cli, root, str(track), feat, presence.get("session_id"))
         elif presence_error:
             print(f"- Presence: unavailable ({presence_error})")
     print(f"- Run: {status.get('run_id') or '-'}")
@@ -614,7 +649,7 @@ def main() -> None:
     for item in primary_next(status):
         print(f"- {display_command(item, cli, root)}")
 
-    emit_bootstrap(cli, root, track)
+    emit_bootstrap(cli, root, track, feat)
     if args.full:
         emit_command_groups(status, cli, root, args.full, track_profile)
     else:

@@ -1,7 +1,7 @@
 ---
 name: devteam:doctor
 description: Workspace doctor — checks local worktrees, env/sync readiness, and agent onboarding
-argument-hint: "[agent-onboarding] [--root <path>] [--set <workspace-set>] [--profile <env-profile>] [--text]"
+argument-hint: "[agent-onboarding] [--root <path>] [--set <track>] [--feat <feat>] [--profile <env-profile>] [--text]"
 allowed-tools:
   - Read
   - Bash

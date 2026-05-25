@@ -1,7 +1,7 @@
 ---
 name: devteam:sync
 description: Sync planning — local worktrees to remote development environment
-argument-hint: "<plan|apply|status> [--root <path>] [--set <workspace-set>] [--profile <env-profile>] [--patch-mode <branch-patch|dirty-only>] [--dirty-only] [--branch-patch] [--include-assets] [--yes] [--run <id>]"
+argument-hint: "<plan|apply|status> [--root <path>] [--set <track>] [--feat <feat>] [--profile <env-profile>] [--patch-mode <branch-patch|dirty-only>] [--dirty-only] [--branch-patch] [--include-assets] [--yes] [--run <id>]"
 allowed-tools:
   - Read
   - Bash
@@ -27,5 +27,5 @@ DEVTEAM_BIN="${HOME}/.claude/plugins/marketplaces/devteam/lib/devteam.cjs"
 If no `--root` is provided, use the current workspace or nearest parent containing `.devteam/config.yaml`. Do not select a global active track; ask the user to choose a track or pass `--set <track>` when the command needs one.
 
 **Step 2**: Execute:
-Run `node "$DEVTEAM_BIN" sync plan $ARGUMENTS` unless another subcommand is provided. Display syncable/missing totals, patch mode, patch file counts, and generated commands. For relative patch sync strategies, branch-patch syncs base_ref..HEAD plus dirty/staged/untracked files and remains the default for sync plan/apply; dirty-only syncs only current working tree, staged, and untracked files for daily incremental validation. `sync apply` is dry-run by default; only pass --yes when the user explicitly asks to execute rsync. With apply --yes --run <id>, append a sync event to that run.
+Run `node "$DEVTEAM_BIN" sync plan $ARGUMENTS` unless another subcommand is provided. The sync/env profile is inferred from the selected track; --feat only narrows the worktree set to that feature. Display syncable/missing totals, patch mode, patch file counts, and generated commands. For relative patch sync strategies, branch-patch syncs base_ref..HEAD plus dirty/staged/untracked files and remains the default for sync plan/apply; dirty-only syncs only current working tree, staged, and untracked files for daily incremental validation. `sync apply` is dry-run by default; only pass --yes when the user explicitly asks to execute rsync. With apply --yes --run <id>, append a sync event to that run.
 </process>

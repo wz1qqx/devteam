@@ -44,7 +44,7 @@ function contextBar(usedPct) {
   return '[' + '='.repeat(filled) + ' '.repeat(empty) + ']';
 }
 
-function latestRun(root, track) {
+function latestRun(root, track, feat = null) {
   const runsDir = path.join(root, '.devteam', 'runs');
   if (!fs.existsSync(runsDir) || !fs.statSync(runsDir).isDirectory()) return null;
   const runs = fs.readdirSync(runsDir, { withFileTypes: true })
@@ -57,10 +57,14 @@ function latestRun(root, track) {
         ? session.lifecycle.status
         : 'open';
       if (status !== 'open') return null;
-      if (track && session.workspace_set && session.workspace_set !== track) return null;
+      const runTrack = session.track || session.workspace_set || null;
+      const runFeat = session.feat || null;
+      if (track && runTrack && runTrack !== track) return null;
+      if (feat && runFeat !== feat) return null;
       return {
         id: session.run_id || entry.name,
-        track: session.workspace_set || null,
+        track: runTrack,
+        feat: runFeat,
         updated_at: session.updated_at || session.created_at || '',
       };
     })
@@ -76,13 +80,15 @@ function resolveWorkspaceState(cwd) {
   const config = readYamlFile(path.join(root, '.devteam', 'config.yaml')) || {};
   const defaults = config.defaults || {};
   const workspaceName = config.name || path.basename(root);
-  const track = process.env.DEVTEAM_TRACK || process.env.DEVTEAM_WORKSPACE_SET || defaults.workspace_set || '';
-  const run = latestRun(root, track);
+  const track = process.env.DEVTEAM_TRACK || defaults.track || '';
+  const feat = process.env.DEVTEAM_FEAT || process.env.DEVTEAM_FEATURE || defaults.feat || '';
+  const run = latestRun(root, track, feat);
 
   return {
     root,
     workspaceName,
     track,
+    feat,
     run: run ? run.id : '',
   };
 }
@@ -102,6 +108,7 @@ function renderStatusline(data) {
   if (workspaceState) {
     parts.push(workspaceState.workspaceName);
     if (workspaceState.track) parts.push(`track:${workspaceState.track}`);
+    if (workspaceState.feat) parts.push(`feat:${workspaceState.feat}`);
     if (workspaceState.run) parts.push(`run:${workspaceState.run}`);
   }
 

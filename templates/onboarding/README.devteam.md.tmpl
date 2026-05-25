@@ -9,17 +9,22 @@ node "{{DEVTEAM_CLI}}" workspace context --root "$PWD" --for human --text
 node "{{DEVTEAM_CLI}}" track list --root "$PWD" --active-only --text
 ```
 
-After selecting a track:
+After selecting a track or feature:
 
 ```bash
 node "{{DEVTEAM_CLI}}" track context --root "$PWD" --set "<track>" --text
+node "{{DEVTEAM_CLI}}" track context --root "$PWD" --set "<track>" --feat "<feat>" --text
 node "{{DEVTEAM_CLI}}" status --root "$PWD" --set "<track>"
+node "{{DEVTEAM_CLI}}" status --root "$PWD" --set "<track>" --feat "<feat>"
 ```
 
 Core concepts:
 
-- Track: a named development/validation line.
-- Worktree: local repo checkout used by a track.
+- Track: a named development/validation lane that owns reusable profiles and validation/deploy instances.
+- Feature: an incremental worktree selection under a track, selected with `--feat`.
+- Environment: a fixed SSH host or K8s cluster inventory entry.
+- Capability: a reusable validation/build/deploy standard such as remote venv, K8s dev, image build, or K8s deploy.
+- Worktree: local repo checkout used by a track or feature.
 - Run: auditable `.devteam/runs/<id>/` validation session.
 - Evidence: recorded sync/test/publish/image/deploy results.
 - Env profile: remote venv/server or local environment profile.
@@ -30,4 +35,4 @@ Configured tracks:
 
 {{ALL_TRACKS}}
 
-{{OLD_WORKSPACE_BLOCK}}
+{{REFERENCE_WORKSPACE_BLOCK}}

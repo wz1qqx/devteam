@@ -4,20 +4,22 @@ Read `AGENTS.md` first. This workspace is managed by devteam and should not be
 treated as a single repository.
 
 Before editing code, inspect the dynamic workspace context and bind this
-session to a track:
+session to a track plus optional feature:
 
 ```bash
 node "{{DEVTEAM_CLI}}" workspace context --root "$PWD" --for claude --text
 node "{{DEVTEAM_CLI}}" track list --root "$PWD" --active-only --text
 ```
 
-After the user chooses a track:
+After the user chooses a track or feature:
 
 ```bash
 node "{{DEVTEAM_CLI}}" track context --root "$PWD" --set "<track>" --text
+node "{{DEVTEAM_CLI}}" track context --root "$PWD" --set "<track>" --feat "<feat>" --text
 ```
 
-Use session-local track selection such as `--set <track>` or `DEVTEAM_TRACK`
-instead of relying on a global active track.
+Use session-local selection such as `--set <track>` plus optional
+`--feat <feat>`, or `DEVTEAM_TRACK`/`DEVTEAM_FEAT`, instead of relying on a
+global active track.
 
-{{OLD_WORKSPACE_BLOCK}}
+{{REFERENCE_WORKSPACE_BLOCK}}
