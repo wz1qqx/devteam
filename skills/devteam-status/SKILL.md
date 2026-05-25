@@ -73,6 +73,7 @@ or delete anything.
 Summarize these points:
 
 - workspace root, track, optional feature
+- session-local selection binding source when present
 - repo/upstream status: behind and unknown counts
 - worktree count, dirty worktrees, branch/head
 - effective environment profile, runtime export availability, stable binding

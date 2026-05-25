@@ -1,7 +1,7 @@
 ---
 name: devteam:status
 description: Harness status — one-screen workspace/repo/env overview
-argument-hint: "[--root <path>] [--set <track>] [--feat <feat>] [--json] [--session|--run <id>]"
+argument-hint: "[--root <path>] [--set <track>] [--feat <feat>] [--scope <name>] [--json] [--session|--run <id>]"
 allowed-tools:
   - Read
   - Bash

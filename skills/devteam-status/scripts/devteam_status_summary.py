@@ -687,6 +687,14 @@ def emit_brief_workspace_summary(
     print(f"- Track: {workspace_set}")
     if feat:
         print(f"- Feature: {feat}")
+    selection_binding = data.get("selection_binding") or {}
+    if harness and selection_binding.get("exists"):
+        print(
+            "- Selection binding: "
+            f"{selection_binding.get('source') or '-'} "
+            f"track={selection_binding.get('track') or '-'}"
+            + (f" feat={selection_binding.get('feat')}" if selection_binding.get("feat") else "")
+        )
     if repos:
         print(
             "- Repos: "

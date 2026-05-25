@@ -476,6 +476,7 @@ def emit_command_groups(status: dict, cli: Path, root: Path, full: bool, track_p
     print("- Track:")
     emit_cmd("track list --text")
     emit_cmd("track bind <track> --text")
+    emit_cmd("track bind <track> --write --text")
     emit_cmd("track use <track> --dry-run")
 
     print("- Repo:")
@@ -683,6 +684,14 @@ def main() -> None:
     print(f"- State: {phase_text(status)}")
     print(f"- Worktree: {worktree_text(status)}")
     if is_harness_status(status):
+        selection_binding = status.get("selection_binding") or {}
+        if selection_binding.get("exists"):
+            print(
+                "- Selection binding: "
+                f"{selection_binding.get('source') or '-'} "
+                f"track={selection_binding.get('track') or '-'}"
+                + (f" feat={selection_binding.get('feat')}" if selection_binding.get("feat") else "")
+            )
         repo_totals = ((status.get("repos") or {}).get("totals") or {})
         environment = status.get("environment") or {}
         print(

@@ -697,6 +697,55 @@ function testFeatureReusesTrackEnvAndValidationProfiles() {
   assert.strictEqual(presenceTrackA.track.runtime.presence_count, 1);
 }
 
+function testTrackBindWritesFeatureSelectionBinding() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-track-bind-feature-'));
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees:',
+    '  repo_a__base:',
+    '    repo: repo-a',
+    '    path: repos/repo-a-base',
+    '  repo_a__feat:',
+    '    repo: repo-a',
+    '    path: repos/repo-a-feat',
+    'tracks:',
+    '  base-track:',
+    '    worktrees: ["repo_a__base"]',
+    '    features:',
+    '      feat-a:',
+    '        aliases: [a]',
+    '        worktrees: ["repo_a__feat"]',
+    'env_profiles:',
+    '  local:',
+    '    type: local',
+    'defaults:',
+    '  track: base-track',
+    '  env: local',
+    '',
+  ].join('\n'));
+
+  const before = fs.readFileSync(path.join(root, '.devteam', 'config.yaml'), 'utf8');
+  const result = runCli(root, ['track', 'bind', 'base-track', '--feat', 'a', '--root', root, '--write', '--scope', 'codex-a']);
+  assert.strictEqual(result.wrote_binding, true);
+  assert.strictEqual(result.track, 'base-track');
+  assert.strictEqual(result.feat, 'feat-a');
+  assert.strictEqual(result.exports.DEVTEAM_FEAT, 'feat-a');
+  assert.ok(result.binding.shell_path.endsWith('/.devteam/state/selection-codex-a.sh'));
+  const shell = fs.readFileSync(result.binding.shell_path, 'utf8');
+  assert.match(shell, /export DEVTEAM_TRACK='base-track'/);
+  assert.match(shell, /export DEVTEAM_FEAT='feat-a'/);
+  const after = fs.readFileSync(path.join(root, '.devteam', 'config.yaml'), 'utf8');
+  assert.strictEqual(after, before);
+
+  const status = runCli(root, ['status', '--root', root, '--json']);
+  assert.strictEqual(status.selection_binding.exists, false);
+  const scopedStatus = runCli(root, ['status', '--root', root, '--json', '--scope', 'codex-a']);
+  assert.strictEqual(scopedStatus.selection_binding.exists, true);
+  assert.strictEqual(scopedStatus.selection_binding.track, 'base-track');
+  assert.strictEqual(scopedStatus.selection_binding.feat, 'feat-a');
+}
+
 function testWorkspaceStatusIncludesDirtyFileSummary() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-workspace-dirty-summary-'));
   const repo = path.join(root, 'repo-a-feature');
@@ -2114,7 +2163,26 @@ function testTrackListStatusAndUseUpdatesDefaults() {
   assert.strictEqual(bind.action, 'track_bind');
   assert.strictEqual(bind.track, 'v0201');
   assert.match(bind.command, /export DEVTEAM_TRACK="v0201"/);
+  assert.strictEqual(bind.wrote_binding, false);
   assert.strictEqual(bind.next_action.includes('does not modify'), true);
+
+  const binding = runCli(root, ['track', 'bind', 'v0201', '--root', root, '--write']);
+  assert.strictEqual(binding.action, 'track_bind');
+  assert.strictEqual(binding.wrote_binding, true);
+  assert.ok(binding.binding.shell_path.endsWith('/.devteam/state/selection-session.sh'));
+  assert.ok(fs.existsSync(binding.binding.shell_path));
+  assert.ok(fs.existsSync(binding.binding.json_path));
+  assert.match(binding.binding.source, /\. '.*selection-session\.sh'/);
+  const bindingShell = fs.readFileSync(binding.binding.shell_path, 'utf8');
+  assert.match(bindingShell, /export DEVTEAM_TRACK='v0201'/);
+  assert.match(bindingShell, /unset DEVTEAM_FEAT/);
+  const bindingJson = JSON.parse(fs.readFileSync(binding.binding.json_path, 'utf8'));
+  assert.strictEqual(bindingJson.track, 'v0201');
+  assert.strictEqual(bindingJson.feat, null);
+  const harnessWithBinding = runCli(root, ['status', '--root', root, '--json']);
+  assert.strictEqual(harnessWithBinding.selection_binding.exists, true);
+  assert.strictEqual(harnessWithBinding.selection_binding.track, 'v0201');
+  assert.ok(harnessWithBinding.next_actions.includes(binding.binding.source));
 
   const dryRun = runCli(root, ['track', 'use', 'v0201', '--root', root, '--dry-run']);
   assert.strictEqual(dryRun.dry_run, true);
@@ -5188,6 +5256,7 @@ function main() {
   testWorkspaceStatusSurfacesPublishPlan();
   testWorkspaceConfigIncludesLaneFragments();
   testFeatureReusesTrackEnvAndValidationProfiles();
+  testTrackBindWritesFeatureSelectionBinding();
   testWorkspaceStatusIncludesDirtyFileSummary();
   testWorkspacePublishPlanSurfacesPushCommands();
   testWorkspacePublishRequiresGateAndRecordsPush();

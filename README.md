@@ -33,6 +33,8 @@ The normal workflow is:
 Tracks and features are session-scoped. `defaults.track` and optional
 `defaults.feat` in `.devteam/config.yaml` are only default hints; they must not
 be treated as global active state when multiple sessions may be open.
+Use `track bind <track> [--feat <feat>] --write --text` when a shell or agent
+session needs a stable local selection file without changing workspace defaults.
 
 ## Core Concepts
 
@@ -51,6 +53,10 @@ be treated as global active state when multiple sessions may be open.
 - **Feature**: an incremental branch/worktree selection nested under a track.
   A feature reuses the track's environment and capability choices while
   narrowing commands to its own worktrees with `--feat <feat>`.
+- **Selection Binding**: a session-local `.devteam/state/selection-*.sh` and
+  `.json` written by `track bind --write`. Source it in a shell to set
+  `DEVTEAM_TRACK` and optional `DEVTEAM_FEAT` without modifying
+  `.devteam/config.yaml` defaults.
 - **Runtime Context**: the effective shell exports for the selected
   track/feature: workspace root, env/sync profile, SSH/K8s fields, proxy
   settings, and local/remote worktree path bindings. Source this context before

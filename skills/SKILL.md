@@ -63,6 +63,9 @@ Route `/devteam <action>` to the matching lightweight command:
 - Ask the user to choose a track, or pass `--set <track>` / use
   `DEVTEAM_TRACK` for the current session. Use `--feat <feat>` /
   `DEVTEAM_FEAT` when working on a feature under that track.
+- Prefer `track bind <track> [--feat <feat>] --write --text` when a shell or
+  agent session needs a stable local selection file; source the printed
+  `.devteam/state/selection-*.sh` instead of changing workspace defaults.
 - Use presence as a hint for concurrent sessions, not as a hard lock.
 - Use `repo status` before branch updates or when upstream freshness matters.
 - Prefer `env bind --text` before remote/K8s helper commands. It writes a

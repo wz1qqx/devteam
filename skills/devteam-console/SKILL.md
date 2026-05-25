@@ -50,6 +50,10 @@ run the picker with `--all-tracks`.
 For parallel terminal sessions, the user may still bind a track per shell with
 `DEVTEAM_TRACK`, but do not rely on mutating the workspace default track when
 multiple sessions may be active.
+When the user needs a reusable shell/session selection, use
+`track bind <track> [--feat <feat>] --write --text` and source the printed
+`.devteam/state/selection-*.sh` file. This records selection under harness
+state without changing `.devteam/config.yaml`.
 
 If the shell already has `DEVTEAM_TRACK` and optionally `DEVTEAM_FEAT`, or the
 user explicitly names a track/feature, run the bundled console script directly:
