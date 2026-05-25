@@ -1,13 +1,15 @@
 ---
 name: devteam
-description: "Workspace control layer for devteam-managed multi-track development. Use for workspace context, track selection, run evidence, remote venv validation, image/deploy planning, and devteam skill management."
+description: "Workspace harness for devteam-managed multi-track development. Use for workspace context, track selection, repo/upstream state, environment/runtime binding, sync helpers, optional run evidence, and devteam skill management."
 ---
 
 # devteam
 
-Use the `.devteam` workspace workflow by default. Treat reusable capabilities as
-independent skills and keep workspace recipes, run evidence, and wiki notes
-separate.
+Use the `.devteam` workspace harness by default. Let devteam manage repeatable
+workspace state: repo/upstream status, track/feature selection, environments,
+runtime exports, worktree inventory, sync state, presence, and optional run
+history. Treat code editing, optimization, feature testing, and performance
+analysis as independent skills or human-managed work.
 
 ## Primary Entry
 
@@ -38,8 +40,9 @@ Route `/devteam <action>` to the matching lightweight command:
 | `workspace` | `workspace scaffold|onboard|context` | Workspace layout and agent onboarding/context |
 | `track` | `track list|status|context|bind|use` | Track discovery and session-local binding |
 | `presence` | `presence list|touch|clear` | Concurrent session soft-lock hints |
-| `session` | `session start|status|handoff|record|list|lint|...` | Run lifecycle, evidence, and handoff |
-| `status` | `status` | One-screen latest run status |
+| `repo` | `repo list|status|fetch|update-plan` | Repo/upstream state and clean update planning |
+| `session` | `session start|status|handoff|record|list|lint|...` | Optional run lifecycle, evidence, and handoff |
+| `status` | `status` | One-screen harness status |
 | `doctor` | `doctor [agent-onboarding]` | Workspace/env/sync/onboarding checks |
 | `ws` | `ws status|materialize|publish-plan|publish` | Local worktree inventory and publish planning |
 | `env` | `env list|show|environments|doctor|refresh` | Machine/cluster environments plus remote/k8s env profile checks and refresh |
@@ -61,13 +64,17 @@ Route `/devteam <action>` to the matching lightweight command:
   `DEVTEAM_TRACK` for the current session. Use `--feat <feat>` /
   `DEVTEAM_FEAT` when working on a feature under that track.
 - Use presence as a hint for concurrent sessions, not as a hard lock.
+- Use `repo status` before branch updates or when upstream freshness matters.
+- Source `env runtime` output before remote/K8s helper commands so proxies,
+  work directories, namespaces, and worktree paths are available in that shell.
 
 ## Mutation Discipline
 
 - Read-only commands are safe: `workspace context`, `track list`, `track context`,
-  `status`, `session status`, `session handoff`, `ws status`, `image plan`,
-  `deploy plan`, `skill status`, and `doctor`.
+  `status`, `repo status`, `repo update-plan`, `session status`,
+  `session handoff`, `ws status`, `image plan`, `deploy plan`, `skill status`,
+  and `doctor`.
 - Commands that sync, refresh envs, publish, build, deploy, or write evidence
   require clear user intent or an already agreed run flow.
-- Record evidence after sync/test/build/deploy/publish work so another session
-  can continue from the run history.
+- Record evidence after sync/test/build/deploy/publish only when a run handoff
+  actually needs it. Do not turn normal development into mandatory gatekeeping.

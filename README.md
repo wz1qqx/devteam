@@ -3,10 +3,12 @@
 [![v2.2.2](https://img.shields.io/badge/version-2.2.2-orange)](https://github.com/wz1qqx/devteam)
 
 `devteam` is a lightweight workspace control layer for multi-repo development.
-It helps an agent or human session understand the current workspace, choose a
-track and optional feature, sync local worktree changes to a remote development
-host, record remote venv validation, plan image builds, and capture
-pre-production deployment evidence.
+It helps an agent or human session understand the current workspace, track
+repo/upstream drift, choose a track and optional feature, bind the right
+environment/runtime exports, and run small assistive operations such as syncing
+code to a remote development host or pulling results back. Evidence, image
+builds, deployment records, and run history remain available, but they are
+optional workflow helpers rather than the center of the harness.
 
 The current architecture uses a thin `.devteam/config.yaml` entrypoint, shared
 environment/capability registries, and lane-owned track files. Reusable
@@ -18,14 +20,14 @@ mixed into workspace recipes.
 The normal workflow is:
 
 1. Open a devteam-managed workspace.
-2. Ask for workspace context or the devteam console.
-3. Choose a track and optional feature for the current session.
-4. Start or continue a run for that track/feature scope.
-5. Inspect local worktrees and sync code changes to the remote dev host.
-6. Validate in the configured remote venv and record test evidence.
-7. Review image build plans and record completed image evidence.
-8. Review deployment plans and record pre-production verification evidence.
-9. Publish validated branches when the run gate is ready.
+2. Inspect harness state with `status` and repo/upstream state with `repo status`.
+3. Choose a track and optional feature for the current terminal/session.
+4. Source the generated runtime env when remote or K8s helpers need workspace
+   paths, proxies, namespace, or worktree bindings.
+5. Edit code with the appropriate coding/testing/optimization skill.
+6. Use devteam only for repeatable harness work: worktree inventory, repo
+   update planning, environment checks/bootstrap, sync, artifact pullback, and
+   optional run/session records when useful.
 
 Tracks and features are session-scoped. `defaults.track` and optional
 `defaults.feat` in `.devteam/config.yaml` are only default hints; they must not
@@ -48,9 +50,14 @@ be treated as global active state when multiple sessions may be open.
 - **Feature**: an incremental branch/worktree selection nested under a track.
   A feature reuses the track's environment and capability choices while
   narrowing commands to its own worktrees with `--feat <feat>`.
-- **Run**: an auditable directory under `.devteam/runs/<run-id>/` containing
-  session metadata, evidence events, a generated README, and `runtime.sh` with
-  the track-scoped proxy, work directory, K8s, and worktree path exports.
+- **Runtime Context**: the effective shell exports for the selected
+  track/feature: workspace root, env/sync profile, SSH/K8s fields, proxy
+  settings, and local/remote worktree path bindings. Source this context before
+  remote or K8s operations so session shells do not lose proxy or path state.
+- **Run**: an optional auditable directory under `.devteam/runs/<run-id>/`
+  containing session metadata, evidence events, a generated README, and
+  `runtime.sh`. Runs are useful for validation handoff, but normal development
+  does not need to record every action as evidence.
 - **Presence**: lightweight soft-lock hints under `.devteam/presence/` for
   concurrent sessions. Presence never blocks work by itself.
 - **Evidence**: recorded facts such as sync, env-doctor, env-refresh, test,
@@ -145,6 +152,21 @@ node lib/devteam.cjs status --root "$PWD" --set "<track>"
 node lib/devteam.cjs status --root "$PWD" --set "<track>" --feat "<feat>"
 ```
 
+For repo/upstream state:
+
+```bash
+node lib/devteam.cjs repo status --root "$PWD" --set "<track>" --text
+node lib/devteam.cjs repo fetch --root "$PWD" --set "<track>"
+node lib/devteam.cjs repo update-plan --root "$PWD" --set "<track>"
+```
+
+For the older run/evidence view:
+
+```bash
+node lib/devteam.cjs session status --root "$PWD" --set "<track>" --text
+node lib/devteam.cjs status --root "$PWD" --set "<track>" --session
+```
+
 For a session handoff before a context switch:
 
 ```bash
@@ -180,6 +202,7 @@ memory.
 
 - `workspace scaffold|onboard|context`
 - `track list|status|context|bind|use`
+- `repo list|status|fetch|update-plan`
 - `presence list|touch|clear`
 - `session start|snapshot|record|status|handoff|list|lint|archive-plan|archive|supersede-plan|supersede-stale|close|supersede|reopen`
 - `status`
@@ -204,6 +227,8 @@ docs live in `commands/devteam/*.md`.
 - `lib/workspace-scaffold.cjs`: `.devteam` workspace layout creation.
 - `lib/workspace-onboarding.cjs`: generated agent onboarding and dynamic context.
 - `lib/track-profile.cjs`: track listing, context, aliases, and session binding.
+- `lib/repo-manager.cjs`: repo/worktree upstream status, fetch, and update planning.
+- `lib/harness-status.cjs`: top-level workspace harness status.
 - `lib/session-manager.cjs`: run sessions, evidence, gates, lifecycle cleanup, and handoff.
 - `lib/presence.cjs`: concurrent session presence hints.
 - `lib/workspace-inventory.cjs`: local worktree status and publish planning.

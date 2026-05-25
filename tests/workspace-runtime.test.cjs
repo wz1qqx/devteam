@@ -198,6 +198,76 @@ function testWorkspaceStatusShowsMissingAndSource() {
   assert.match(text, /source: .*present/);
 }
 
+function testRepoStatusTracksUpstreamBehindAndPlansUpdates() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-repo-status-'));
+  const repo = path.join(root, 'repo-a');
+  const remote = path.join(root, 'repo-a-origin.git');
+
+  fs.mkdirSync(repo, { recursive: true });
+  execFileSync('git', ['init'], { cwd: repo, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: repo });
+  execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: repo });
+  execFileSync('git', ['checkout', '-b', 'main'], { cwd: repo, stdio: ['ignore', 'ignore', 'ignore'] });
+  writeFile(path.join(repo, 'README.md'), '# repo\n');
+  execFileSync('git', ['add', '.'], { cwd: repo });
+  execFileSync('git', ['commit', '-m', 'base'], { cwd: repo, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['init', '--bare', remote], { stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['remote', 'add', 'origin', remote], { cwd: repo });
+  execFileSync('git', ['push', '-u', 'origin', 'main'], { cwd: repo, stdio: ['ignore', 'ignore', 'ignore'] });
+
+  const second = execFileSync('git', [
+    'commit-tree',
+    'HEAD^{tree}',
+    '-p',
+    'HEAD',
+    '-m',
+    'remote ahead',
+  ], { cwd: repo, encoding: 'utf8' }).trim();
+  execFileSync('git', ['update-ref', 'refs/remotes/origin/main', second], { cwd: repo });
+
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'repos:',
+    '  repo-a:',
+    `    remote: ${remote}`,
+    `    upstream: ${remote}`,
+    'worktrees:',
+    '  repo_a__main:',
+    '    repo: repo-a',
+    '    path: repo-a',
+    '    branch: main',
+    '    base_ref: origin/main',
+    'tracks:',
+    '  track-a:',
+    '    worktrees: ["repo_a__main"]',
+    'env_profiles:',
+    '  local:',
+    '    type: local',
+    'defaults:',
+    '  track: track-a',
+    '  env: local',
+    '  sync: local',
+  ].join('\n') + '\n');
+
+  const status = runCli(root, ['repo', 'status', '--root', root, '--set', 'track-a']);
+  assert.strictEqual(status.action, 'repo_status');
+  assert.strictEqual(status.totals.repos, 1);
+  assert.strictEqual(status.totals.behind_upstream, 1);
+  assert.strictEqual(status.repos[0].worktrees[0].upstream_ref, 'origin/main');
+  assert.strictEqual(status.repos[0].worktrees[0].commits_behind_upstream, 1);
+
+  const plan = runCli(root, ['repo', 'update-plan', '--root', root, '--set', 'track-a']);
+  assert.strictEqual(plan.action, 'repo_update_plan');
+  assert.strictEqual(plan.totals.update, 1);
+  assert.strictEqual(plan.entries[0].action, 'fast_forward_or_rebase');
+  assert.match(plan.entries[0].commands[1], /rebase "origin\/main"/);
+
+  const text = runCliText(root, ['repo', 'status', '--root', root, '--set', 'track-a', '--text']);
+  assert.match(text, /Repos: 1, worktrees: 1\/1 present, 0 dirty, 1 behind/);
+  assert.match(text, /upstream ref: origin\/main/);
+}
+
 function testWorkspaceStatusSurfacesPublishPlan() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-workspace-publish-'));
   writeFile(path.join(root, '.devteam', 'config.yaml'), [
@@ -1201,6 +1271,93 @@ function testSessionStatusSummarizesEvidenceAndPublishPlan() {
   assert.strictEqual(topLevelStatus.phase.name, 'publish-local-branches');
 }
 
+function testHarnessStatusAggregatesWorkspaceRepoEnvAndSession() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-harness-status-'));
+  const repo = path.join(root, 'repo-a');
+  fs.mkdirSync(repo, { recursive: true });
+  execFileSync('git', ['init'], { cwd: repo, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: repo });
+  execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: repo });
+  execFileSync('git', ['checkout', '-b', 'track-a'], { cwd: repo, stdio: ['ignore', 'ignore', 'ignore'] });
+  writeFile(path.join(repo, 'README.md'), '# repo\n');
+  execFileSync('git', ['add', '.'], { cwd: repo });
+  execFileSync('git', ['commit', '-m', 'base'], { cwd: repo, stdio: ['ignore', 'ignore', 'ignore'] });
+  writeFile(path.join(repo, 'dirty.txt'), 'dirty\n');
+
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'repos:',
+    '  repo-a:',
+    '    remote: https://example.com/repo-a.git',
+    '    upstream: https://example.com/repo-a-upstream.git',
+    'worktrees:',
+    '  repo_a__track:',
+    '    repo: repo-a',
+    '    path: repo-a',
+    '    branch: track-a',
+    '    base_ref: origin/main',
+    '    sync:',
+    '      profile: remote-a',
+    '      remote_path: /remote/repo-a',
+    'tracks:',
+    '  track-a:',
+    '    worktrees: ["repo_a__track"]',
+    '    env: remote-a',
+    '    sync: remote-a',
+    'env_profiles:',
+    '  remote-a:',
+    '    type: remote_dev',
+    '    environment: remote-host',
+    '    ssh: "ssh root@example.com"',
+    '    host: example.com',
+    '    work_dir: /remote',
+    '    proxy:',
+    '      http_proxy: http://127.0.0.1:1081',
+    'environments:',
+    '  remote-host:',
+    '    kind: ssh_host',
+    '    status: ready',
+    'defaults:',
+    '  track: track-a',
+    '  env: remote-a',
+    '  sync: remote-a',
+  ].join('\n') + '\n');
+
+  const session = runCli(root, [
+    'session', 'start',
+    '--root', root,
+    '--set', 'track-a',
+    '--sync', 'remote-a',
+    '--env', 'remote-a',
+    '--no-build',
+    '--no-deploy',
+    '--id', 'harness-run',
+  ]);
+  assert.strictEqual(session.run_id, 'harness-run');
+
+  const status = runCli(root, ['status', '--root', root, '--set', 'track-a', '--json']);
+  assert.strictEqual(status.action, 'harness_status');
+  assert.strictEqual(status.workspace_set, 'track-a');
+  assert.strictEqual(status.worktrees.totals.dirty, 1);
+  assert.strictEqual(status.repos.totals.upstream_unknown, 1);
+  assert.strictEqual(status.environment.profile, 'remote-a');
+  assert.strictEqual(status.environment.proxy_configured, true);
+  assert.ok(status.runtime.env_keys.includes('HTTP_PROXY'));
+  assert.strictEqual(status.recent_runs.latest.run_id, 'harness-run');
+  assert.ok(status.next_actions.some(action => action.includes('repo status')));
+  assert.ok(status.next_actions.some(action => action.includes('ws status')));
+
+  const text = runCliText(root, ['status', '--root', root, '--set', 'track-a']);
+  assert.match(text, /Devteam Harness/);
+  assert.match(text, /Repos: 1 configured, 0 behind, 1 upstream unknown/);
+  assert.match(text, /Environment: remote-a \(remote_dev\).*proxy=yes/);
+
+  const sessionShortcut = runCli(root, ['status', '--root', root, '--run', 'harness-run', '--json']);
+  assert.strictEqual(sessionShortcut.action, 'session_status');
+  assert.strictEqual(sessionShortcut.run_id, 'harness-run');
+}
+
 function testSessionStatusMarksEvidenceStaleWhenWorktreeHeadChanges() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-workspace-stale-head-'));
   const repo = path.join(root, 'repo-a-feature');
@@ -1394,14 +1551,15 @@ function testSessionListSummarizesRunHistoryAndFiltersByTrack() {
   assert.deepStrictEqual(withBroken.unreadable.map(item => item.run_id).sort(), ['broken', 'orphan']);
 
   const latest = runCli(root, ['status', '--root', root, '--json']);
-  assert.strictEqual(latest.run_id, 'run-a');
+  assert.strictEqual(latest.action, 'harness_status');
+  assert.strictEqual(latest.recent_runs.latest.run_id, 'run-a');
   assert.strictEqual(latest.workspace_set, 'track-a');
 
-  const latestForTrackB = runCli(root, ['status', '--root', root, '--set', 'track-b', '--json']);
+  const latestForTrackB = runCli(root, ['status', '--root', root, '--set', 'track-b', '--session', '--json']);
   assert.strictEqual(latestForTrackB.run_id, 'run-b');
   assert.strictEqual(latestForTrackB.workspace_set, 'track-b');
 
-  const latestForTrackA = runCli(root, ['status', '--root', root, '--set', 'track-a', '--json']);
+  const latestForTrackA = runCli(root, ['status', '--root', root, '--set', 'track-a', '--session', '--json']);
   assert.strictEqual(latestForTrackA.run_id, 'run-a');
   assert.strictEqual(latestForTrackA.workspace_set, 'track-a');
 
@@ -1570,7 +1728,8 @@ function testSessionLifecycleCanCloseStaleRunsOutOfActiveHistory() {
   assert.strictEqual(allLint.totals.warnings, 1);
 
   const latest = runCli(root, ['status', '--root', root, '--json']);
-  assert.strictEqual(latest.run_id, 'new-run');
+  assert.strictEqual(latest.action, 'harness_status');
+  assert.strictEqual(latest.recent_runs.latest.run_id, 'new-run');
 
   const blockedRecord = runCliFailure(root, [
     'session', 'record',
@@ -2386,7 +2545,7 @@ function testSessionLocalTrackEnvKeepsWorkspaceDefaultUntouched() {
   assert.strictEqual(startFromEnv.profiles.env, 'remote-test-track-b');
   assert.strictEqual(startFromEnv.profiles.sync, 'remote-test-track-b');
 
-  const latestForEnv = runCliWithEnv(root, ['status', '--root', root, '--json'], {
+  const latestForEnv = runCliWithEnv(root, ['status', '--root', root, '--session', '--json'], {
     DEVTEAM_TRACK: 'track-b',
   });
   assert.strictEqual(latestForEnv.run_id, 'track-b-run');
@@ -4856,6 +5015,7 @@ function testEnvRefreshDefaultsToDryRunPlan() {
 function main() {
   testYamlDoubleQuotedEscapesForShellCommands();
   testWorkspaceStatusShowsMissingAndSource();
+  testRepoStatusTracksUpstreamBehindAndPlansUpdates();
   testWorkspaceStatusSurfacesPublishPlan();
   testWorkspaceConfigIncludesLaneFragments();
   testFeatureReusesTrackEnvAndValidationProfiles();
@@ -4866,6 +5026,7 @@ function main() {
   testSessionStatusPublishNextActionForAlreadyPublishedBranch();
   testSessionStartSuggestsPublishPlanWhenNeeded();
   testSessionStatusSummarizesEvidenceAndPublishPlan();
+  testHarnessStatusAggregatesWorkspaceRepoEnvAndSession();
   testSessionStatusMarksEvidenceStaleWhenWorktreeHeadChanges();
   testSessionListSummarizesRunHistoryAndFiltersByTrack();
   testSessionLifecycleCanCloseStaleRunsOutOfActiveHistory();

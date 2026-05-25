@@ -1,6 +1,6 @@
 ---
 name: devteam-status
-description: "快速查看 devteam 对整个 workspace 的聚合状态。当用户说“看下 devteam 状态 / workspace 状况 / 当前 track / run gate / build profile 状态 / 远程验证状态”时使用。只读执行本地 devteam CLI，汇总 worktree、run evidence、sync/test/publish/image/deploy/deploy-verify gate 和下一步，不修改代码、不提交、不构建。"
+description: "快速查看 devteam 对整个 workspace 的聚合状态。当用户说“看下 devteam 状态 / workspace 状况 / 当前 track / repo upstream / 环境绑定 / runtime / run gate”时使用。只读执行本地 devteam CLI，优先汇总 harness、repo、worktree、env/runtime、sync state、presence 和最近 run；需要时再展示 session evidence/gate。"
 metadata:
   requires:
     bins: ["node", "python3"]
@@ -29,12 +29,14 @@ Run the bundled summary script, resolving it relative to this `SKILL.md`:
 python3 scripts/devteam_status_summary.py --root <workspace-root>
 ```
 
-Default output is the compact daily dashboard: selected track/run conclusion,
-worktree state, stale evidence, gates, primary next action, recent runs, and
-history cleanup hint. It scopes the selected run and recent run list to the
-current session track. Track selection order is `--set`, then `DEVTEAM_TRACK`,
-then `.devteam/config.yaml defaults.track`. Feature
-selection is `--feat`, then `DEVTEAM_FEAT`, then `defaults.feat`.
+Default output is the compact daily dashboard. It starts from harness state:
+selected track/feature, repo upstream drift, worktree dirty/missing state,
+effective environment/runtime exports, proxy binding, sync state, presence,
+primary next action, recent runs, and history cleanup hint. When a latest run is
+present, it can also show session evidence/gates as secondary context. Track
+selection order is `--set`, then `DEVTEAM_TRACK`, then `.devteam/config.yaml
+defaults.track`. Feature selection is `--feat`, then `DEVTEAM_FEAT`, then
+`defaults.feat`.
 Use `--full` only when the user
 asks for detailed evidence, gate internals, dirty-file details, or run-history
 issue details.
@@ -52,13 +54,14 @@ DEVTEAM_BIN="${DEVTEAM_CLI:-${HOME}/Documents/devteam/lib/devteam.cjs}"
 [ -f "$DEVTEAM_BIN" ] || DEVTEAM_BIN="${HOME}/.claude/plugins/marketplaces/devteam/lib/devteam.cjs"
 [ -f "$DEVTEAM_BIN" ] || DEVTEAM_BIN=$(ls ~/.claude/plugins/cache/devteam/devteam/*/lib/devteam.cjs 2>/dev/null | tail -1)
 node "$DEVTEAM_BIN" status --root <root> --json
-node "$DEVTEAM_BIN" status --root <root> --set <track> [--feat <feat>] --json
+node "$DEVTEAM_BIN" repo status --root <root> --set <track> [--feat <feat>]
+node "$DEVTEAM_BIN" status --root <root> --set <track> [--feat <feat>] --session --json
 node "$DEVTEAM_BIN" session list --root <root> --set <track> [--feat <feat>] --limit 3
 node "$DEVTEAM_BIN" session lint --root <root> --set <track> [--feat <feat>]
 node "$DEVTEAM_BIN" session archive-plan --root <root> --text
 ```
 
-It auto-selects the latest readable `.devteam/runs/<run-id>` when present,
+For session detail it auto-selects the latest readable `.devteam/runs/<run-id>` when present,
 skipping malformed, deleted track, closed, and superseded history. Use
 `--no-run` only if the user wants workspace state without run evidence; that
 mode uses the current selected track/feature. If history lint reports error-level
@@ -69,12 +72,14 @@ or delete anything.
 
 Summarize these points:
 
-- workspace root, track, optional feature, run id
-- phase and reason
+- workspace root, track, optional feature
+- repo/upstream status: behind and unknown counts
 - worktree count, dirty worktrees, branch/head
-- evidence: sync, test, publish, image-build, deploy, deploy-verify
-- gates: remote validation, publish, image build, deploy, deploy-verify
-- image profile completeness and planned image tag
+- effective environment profile, runtime export availability, and proxy binding
+- sync state and presence
+- latest run id, phase, and reason when a run exists
+- evidence/gates only when relevant to the user's question or next action
+- image profile completeness and planned image tag when configured
 - recent run history when available
 - history health: unreadable or deleted track runs and stale evidence warnings
 - one to three concrete next actions

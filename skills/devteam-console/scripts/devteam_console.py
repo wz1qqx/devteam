@@ -135,6 +135,24 @@ def phase_summary(run: object) -> str:
     return f"{phase.get('name') or '-'}:{phase.get('status') or '-'}"
 
 
+def is_harness_status(status: object) -> bool:
+    return isinstance(status, dict) and status.get("action") == "harness_status"
+
+
+def latest_run(status: dict) -> Optional[dict]:
+    if is_harness_status(status):
+        return ((status.get("recent_runs") or {}).get("latest") or None)
+    return status if status.get("run_id") else None
+
+
+def selected_track(status: dict) -> Optional[str]:
+    return status.get("workspace_set") or status.get("track")
+
+
+def selected_feat(status: dict) -> Optional[str]:
+    return status.get("feat")
+
+
 def track_badges(track: dict) -> str:
     badges = []
     status = track.get("status")
@@ -186,6 +204,15 @@ def run_history_text(history: object) -> str:
 
 
 def phase_text(status: dict) -> str:
+    if is_harness_status(status):
+        run = latest_run(status)
+        if not run:
+            return "harness/ready"
+        phase = run.get("phase") or {}
+        name = phase.get("name") or "-"
+        state = phase.get("status") or "-"
+        reason = phase.get("reason") or ""
+        return f"{name}/{state}" + (f" - {reason}" if reason else "")
     phase = status.get("phase") or {}
     name = phase.get("name") or "-"
     state = phase.get("status") or "-"
@@ -194,6 +221,9 @@ def phase_text(status: dict) -> str:
 
 
 def evidence_text(status: dict) -> str:
+    if is_harness_status(status):
+        run = latest_run(status)
+        return evidence_text(run) if run else "no run evidence"
     evidence = status.get("evidence") or {}
     publish = status.get("publish") or {}
     passed = []
@@ -228,11 +258,15 @@ def evidence_text(status: dict) -> str:
 
 
 def gate_text(status: dict, name: str) -> str:
+    if is_harness_status(status):
+        return "n/a"
     gate = (status.get("gates") or {}).get(name) or {}
     return gate.get("status") or "n/a"
 
 
 def head_changed(status: dict) -> bool:
+    if is_harness_status(status):
+        return False
     return ((status.get("head_check") or {}).get("status") == "changed")
 
 
@@ -265,8 +299,12 @@ def emit_presence_summary(cli: Path, root: Path, track: str, feat: Optional[str]
 
 
 def worktree_text(status: dict) -> str:
-    totals = status.get("workspace_status") or {}
-    worktrees = status.get("worktrees") or []
+    if is_harness_status(status):
+        totals = (status.get("worktrees") or {}).get("totals") or {}
+        worktrees = (status.get("worktrees") or {}).get("entries") or []
+    else:
+        totals = status.get("workspace_status") or {}
+        worktrees = status.get("worktrees") or []
     base = (
         f"{totals.get('present', 0)}/{totals.get('worktrees', 0)} present, "
         f"{totals.get('dirty', 0)} dirty, {totals.get('missing', 0)} missing"
@@ -286,6 +324,8 @@ def worktree_text(status: dict) -> str:
 
 
 def primary_next(status: dict) -> list[str]:
+    if is_harness_status(status):
+        return [str(item) for item in (status.get("next_actions") or [])[:2]] or ["No immediate action is required."]
     actions = status.get("next_actions") or []
     if actions:
         return [str(item) for item in actions[:2]]
@@ -405,15 +445,17 @@ def emit_bootstrap(cli: Path, root: Path, track: Optional[str], feat: Optional[s
 
 
 def emit_command_groups(status: dict, cli: Path, root: Path, full: bool, track_profile: Optional[dict] = None) -> None:
-    workspace_set = status.get("workspace_set") or "<track>"
-    feat = status.get("feat") or None
+    workspace_set = selected_track(status) or "<track>"
+    feat = selected_feat(status)
     scope = scope_text(workspace_set, feat)
-    run_id = status.get("run_id") or "<run-id>"
+    latest = latest_run(status)
+    run_id = (latest or {}).get("run_id") or status.get("run_id") or "<run-id>"
     profiles = status.get("profiles") or {}
     track_profile = track_profile or {}
+    harness_env = status.get("environment") or {}
     run_image_enabled = bool(profiles.get("build") or status.get("image"))
     run_deploy_enabled = bool(profiles.get("deploy") or status.get("deploy"))
-    env_profile = profiles.get("env") or profiles.get("sync") or track_profile.get("env")
+    env_profile = profiles.get("env") or profiles.get("sync") or harness_env.get("profile") or track_profile.get("env")
     sync_profile = profiles.get("sync") or env_profile
     image_profile = profiles.get("build") or track_profile.get("build")
     deploy_profile = profiles.get("deploy") or track_profile.get("deploy")
@@ -435,6 +477,10 @@ def emit_command_groups(status: dict, cli: Path, root: Path, full: bool, track_p
     emit_cmd("track list --text")
     emit_cmd("track bind <track> --text")
     emit_cmd("track use <track> --dry-run")
+
+    print("- Repo:")
+    emit_cmd(f"repo status {scope} --text".strip())
+    emit_cmd(f"repo update-plan {scope}".strip())
 
     print("- Worktree:")
     emit_cmd(f"ws status {scope} --text --full".strip())
@@ -502,13 +548,15 @@ def emit_command_groups(status: dict, cli: Path, root: Path, full: bool, track_p
 
 
 def emit_daily_shortcuts(status: dict, cli: Path, root: Path, track_profile: Optional[dict] = None) -> None:
-    workspace_set = status.get("workspace_set") or "<track>"
-    feat = status.get("feat") or None
+    workspace_set = selected_track(status) or "<track>"
+    feat = selected_feat(status)
     scope = scope_text(workspace_set, feat)
-    run_id = status.get("run_id")
+    latest = latest_run(status)
+    run_id = (latest or {}).get("run_id") or status.get("run_id")
     profiles = status.get("profiles") or {}
     track_profile = track_profile or {}
-    env_profile = profiles.get("env") or profiles.get("sync") or track_profile.get("env")
+    harness_env = status.get("environment") or {}
+    env_profile = profiles.get("env") or profiles.get("sync") or harness_env.get("profile") or track_profile.get("env")
     image_profile = profiles.get("build") or track_profile.get("build")
     image = status.get("image") or {}
     if image:
@@ -518,6 +566,7 @@ def emit_daily_shortcuts(status: dict, cli: Path, root: Path, track_profile: Opt
     print("\nDaily Shortcuts")
     print("- Inspect:")
     emit_cmd(f"status {scope}".strip())
+    emit_cmd(f"repo status {scope} --text".strip())
     emit_cmd(f"track status {scope} --text".strip())
     emit_cmd(f"ws status {scope} --text".strip())
 
@@ -573,7 +622,7 @@ def main() -> None:
         raise SystemExit(f"devteam CLI not found: {cli}")
 
     selected_set = args.set or env_track()
-    selected_feat = args.feat or env_feat()
+    selected_feature = args.feat or env_feat()
     if args.tracks_only or (not selected_set and not args.run and not args.use_default):
         track_list_args = ["track", "list"]
         if not args.all_tracks:
@@ -592,7 +641,7 @@ def main() -> None:
     if args.run:
         status_args.extend(["--run", args.run])
     elif selected_set:
-        status_args.extend(scope_args(selected_set, selected_feat))
+        status_args.extend(scope_args(selected_set, selected_feature))
     status = run_json(cli, root, status_args)
     if not status:
         sys.stderr.write("Failed to read devteam status.\n")
@@ -600,14 +649,14 @@ def main() -> None:
     track_status = None
     track_profile = None
     if selected_set:
-        track_status = run_json(cli, root, ["track", "status", *scope_args(selected_set, selected_feat), "--no-runtime"])
+        track_status = run_json(cli, root, ["track", "status", *scope_args(selected_set, selected_feature), "--no-runtime"])
         if track_status:
             track_profile = track_status.get("track") or {}
 
     print("Devteam Console")
     print(f"- Workspace: {status.get('workspace') or str(root)}")
-    track = status.get("workspace_set") or selected_set
-    feat = status.get("feat") or selected_feat
+    track = selected_track(status) or selected_set
+    feat = selected_feat(status) or selected_feature
     print(f"- Track: {track or '-'}")
     if feat:
         print(f"- Feature: {feat}")
@@ -627,9 +676,25 @@ def main() -> None:
             emit_presence_summary(cli, root, str(track), feat, presence.get("session_id"))
         elif presence_error:
             print(f"- Presence: unavailable ({presence_error})")
-    print(f"- Run: {status.get('run_id') or '-'}")
+    latest = latest_run(status)
+    print(f"- Run: {(latest or {}).get('run_id') or status.get('run_id') or '-'}")
     print(f"- State: {phase_text(status)}")
     print(f"- Worktree: {worktree_text(status)}")
+    if is_harness_status(status):
+        repo_totals = ((status.get("repos") or {}).get("totals") or {})
+        environment = status.get("environment") or {}
+        print(
+            "- Repo: "
+            f"{repo_totals.get('repos', 0)} repos, "
+            f"{repo_totals.get('behind_upstream', 0)} behind, "
+            f"{repo_totals.get('upstream_unknown', 0)} upstream unknown"
+        )
+        print(
+            "- Environment: "
+            f"{environment.get('profile') or '-'} "
+            f"type={environment.get('type') or '-'} "
+            f"proxy={'yes' if environment.get('proxy_configured') else 'no'}"
+        )
     print(f"- Evidence: {evidence_text(status)}")
     print(
         "- Gates: "

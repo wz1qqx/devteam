@@ -1,6 +1,6 @@
 ---
 name: devteam-console
-description: "一键唤醒 devteam workspace 控制台。当用户说“打开 devteam 控制台 / 唤醒 devteam / devteam console / workspace 控制台 / 给我 devteam 入口 / 我该怎么继续”时使用。只读汇总当前 workspace 状态，默认输出一屏内的 Daily Shortcuts、当前 Primary Next 和 track/run/worktree/evidence/gate 摘要；需要完整 track/worktree/run/remote env/sync/image/publish/deploy/skill 命令墙时才使用 --full。不修改代码、不提交、不构建、不部署。"
+description: "一键唤醒 devteam workspace 控制台。当用户说“打开 devteam 控制台 / 唤醒 devteam / devteam console / workspace 控制台 / 给我 devteam 入口 / 我该怎么继续”时使用。只读汇总当前 workspace harness 状态，默认输出一屏内的 Daily Shortcuts、当前 Primary Next 和 track/repo/worktree/env/runtime/run 摘要；需要完整 track/repo/worktree/run/remote env/sync/image/publish/deploy/skill 命令墙时才使用 --full。不修改代码、不提交、不构建、不部署。"
 ---
 
 # Devteam Console
@@ -78,18 +78,19 @@ should feel like a daily work entrypoint rather than a command reference page.
 
 Relay the script output directly or summarize it with the same structure:
 
-- current workspace, active track, optional feature, latest run, phase
+- current workspace, active track, optional feature, repo/upstream state,
+  effective env/runtime, latest run when available
 - track source (`--set`, `DEVTEAM_TRACK`, single track, or workspace default)
 - track picker dashboard with aliases, dirty/missing worktrees, latest run,
   phase, build profile, active session presence, and next action when no track
   is selected; mention hidden track count when lifecycle filtering hides tracks
-- worktree dirty summary
-- evidence/gate summary
+- worktree dirty summary and repo upstream drift
+- evidence/gate summary only as secondary run context
 - current Primary Next
 - `dt()` bootstrap snippet
 - compact `Daily Shortcuts` for inspect, work loop, verify/build, and skills
-- full command panels for status, track, worktree, run, remote env, sync, image,
-  publish/deploy, and skill management only when `--full` is requested
+- full command panels for status, track, repo, worktree, run, remote env, sync,
+  image, publish/deploy, and skill management only when `--full` is requested
 
 Do not execute mutating commands unless the user explicitly asks. In particular,
 do not run `sync apply --yes`, `env refresh --yes`, `image prepare`, `ws publish
@@ -134,6 +135,7 @@ DEVTEAM_BIN="${DEVTEAM_CLI:-${HOME}/Documents/devteam/lib/devteam.cjs}"
 [ -f "$DEVTEAM_BIN" ] || DEVTEAM_BIN="${HOME}/.claude/plugins/marketplaces/devteam/lib/devteam.cjs"
 [ -f "$DEVTEAM_BIN" ] || DEVTEAM_BIN=$(ls ~/.claude/plugins/cache/devteam/devteam/*/lib/devteam.cjs 2>/dev/null | tail -1)
 node "$DEVTEAM_BIN" status --root <root>
+node "$DEVTEAM_BIN" repo status --root <root> --text
 node "$DEVTEAM_BIN" track list --root <root> --text --no-runtime
 node "$DEVTEAM_BIN" track status --root <root> --text
 node "$DEVTEAM_BIN" track bind <track> --root <root> --text

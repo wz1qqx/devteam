@@ -1,7 +1,7 @@
 ---
 name: devteam:status
-description: Latest run status — one-screen workspace/run overview
-argument-hint: "[--root <path>] [--set <track>] [--feat <feat>] [--run <id>] [--json]"
+description: Harness status — one-screen workspace/repo/env overview
+argument-hint: "[--root <path>] [--set <track>] [--feat <feat>] [--json] [--session|--run <id>]"
 allowed-tools:
   - Read
   - Bash
@@ -9,7 +9,7 @@ allowed-tools:
   - Grep
 ---
 <objective>
-Display the latest .devteam/runs/<id>/ status, including workspace state, run evidence, gates, publish plan, and next actions.
+Display the workspace harness state: selected track/feature, local worktrees, repo/upstream drift, environment/runtime binding, sync state, presence, and recent runs.
 </objective>
 
 <context>
@@ -27,5 +27,5 @@ DEVTEAM_BIN="${HOME}/.claude/plugins/marketplaces/devteam/lib/devteam.cjs"
 If no `--root` is provided, use the current workspace or nearest parent containing `.devteam/config.yaml`. Do not select a global active track; ask the user to choose a track or pass `--set <track>` when the command needs one.
 
 **Step 2**: Execute:
-Run `node "$DEVTEAM_BIN" status $ARGUMENTS`. This is a shortcut for session status: if --run is omitted, it reads the latest run whose session metadata still matches current .devteam/config.yaml, skipping malformed or deleted-track history; pass --set and optional --feat to select the latest readable run for one track or feature. By default it prints compact text for daily use; pass --json for the full structured payload. Display phase, latest evidence, workspace totals, sync/image/deploy/deploy-verify/publish gates, publish-after-validation plan, and next_actions.
+Run `node "$DEVTEAM_BIN" status $ARGUMENTS`. This is the harness daily status, not a required evidence gate: it summarizes selected track/feature, worktree present/dirty/missing counts, repo upstream behind/unknown counts, effective environment/profile/runtime exports, proxy availability, last sync state, active presence, and latest run summary when one exists. By default it prints compact text; pass --json for the structured payload. Use `status --session`, `status --run <id>`, or `session status` only when the user explicitly wants the older run/evidence/gate view.
 </process>
