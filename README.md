@@ -22,8 +22,9 @@ The normal workflow is:
 1. Open a devteam-managed workspace.
 2. Inspect harness state with `status` and repo/upstream state with `repo status`.
 3. Choose a track and optional feature for the current terminal/session.
-4. Source the generated runtime env when remote or K8s helpers need workspace
-   paths, proxies, namespace, or worktree bindings.
+4. Run `env bind --text` for that track/feature when remote or K8s helpers
+   need workspace paths, proxies, namespace, or worktree bindings, then source
+   the printed `.devteam/state/runtime-*.sh` file in new shells/sessions.
 5. Edit code with the appropriate coding/testing/optimization skill.
 6. Use devteam only for repeatable harness work: worktree inventory, repo
    update planning, environment checks/bootstrap, sync, artifact pullback, and
@@ -54,6 +55,11 @@ be treated as global active state when multiple sessions may be open.
   track/feature: workspace root, env/sync profile, SSH/K8s fields, proxy
   settings, and local/remote worktree path bindings. Source this context before
   remote or K8s operations so session shells do not lose proxy or path state.
+- **Runtime Binding**: a stable harness-managed snapshot of runtime context
+  under `.devteam/state/runtime-*.sh` and `.devteam/state/runtime-*.json`,
+  written by `env bind`. The filename includes the selected track, feature,
+  profile, and environment so frequent environment switching does not overwrite
+  another session's binding.
 - **Run**: an optional auditable directory under `.devteam/runs/<run-id>/`
   containing session metadata, evidence events, a generated README, and
   `runtime.sh`. Runs are useful for validation handoff, but normal development
@@ -208,7 +214,7 @@ memory.
 - `status`
 - `doctor [agent-onboarding]`
 - `ws status|materialize|publish-plan|publish`
-- `env list|show|environments|doctor|runtime|refresh`
+- `env list|show|environments|doctor|runtime|bind|refresh`
 - `capability list|show`
 - `validate list|plan`
 - `sync plan|apply|status`
@@ -233,8 +239,9 @@ docs live in `commands/devteam/*.md`.
 - `lib/presence.cjs`: concurrent session presence hints.
 - `lib/workspace-inventory.cjs`: local worktree status and publish planning.
 - `lib/env-profile.cjs`: remote/k8s environment profile doctor and refresh.
-- `lib/runtime-context.cjs`: effective env/profile/worktree runtime exports for
-  sessions, validation plans, and deploy plans.
+- `lib/runtime-context.cjs`: effective env/profile/worktree runtime exports and
+  stable `.devteam/state/runtime-*.sh` bindings for sessions, validation plans,
+  and deploy plans.
 - `lib/capability-registry.cjs`: environment/capability/validation instance registry and read-only validation plans.
 - `lib/sync-plan.cjs`: local-to-remote sync planning and execution.
 - `lib/action-plan.cjs`: image/deploy instance planning, image/deploy planning, and evidence gates.

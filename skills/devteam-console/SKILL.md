@@ -79,7 +79,7 @@ should feel like a daily work entrypoint rather than a command reference page.
 Relay the script output directly or summarize it with the same structure:
 
 - current workspace, active track, optional feature, repo/upstream state,
-  effective env/runtime, latest run when available
+  effective env/runtime, stable runtime binding file, latest run when available
 - track source (`--set`, `DEVTEAM_TRACK`, single track, or workspace default)
 - track picker dashboard with aliases, dirty/missing worktrees, latest run,
   phase, build profile, active session presence, and next action when no track
@@ -96,6 +96,11 @@ Do not execute mutating commands unless the user explicitly asks. In particular,
 do not run `sync apply --yes`, `env refresh --yes`, `image prepare`, `ws publish
 --yes`, `deploy record`, or `session archive --yes` just because they appear in
 the console.
+
+If the runtime binding is missing or stale, recommend `env bind --text` for the
+selected track/feature before remote or K8s helper work. The user should source
+the printed `.devteam/state/runtime-*.sh` file in new shells so proxy, workdir,
+namespace, and worktree path exports stay aligned with the harness selection.
 
 If the selected run is stale because the local worktree HEAD changed after its
 evidence was recorded, treat the run as read-only history. The console should

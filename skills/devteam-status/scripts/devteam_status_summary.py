@@ -701,6 +701,10 @@ def emit_brief_workspace_summary(
             f"type={environment.get('type') or '-'} "
             f"proxy={'yes' if environment.get('proxy_configured') else 'no'}"
         )
+    binding = ((data.get("runtime") or {}).get("binding") or {}) if harness else {}
+    if binding:
+        state = "current" if binding.get("exists") and binding.get("current") else ("stale" if binding.get("exists") else "missing")
+        print(f"- Runtime binding: {state} {binding.get('shell_path') or '-'}")
     print(
         "- Worktrees: "
         f"{totals.get('present', 0)}/{totals.get('worktrees', 0)} present, "

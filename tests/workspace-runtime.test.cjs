@@ -4893,6 +4893,77 @@ function testRuntimeContextBindsEnvProxyAndWorktrees() {
   assert.equal(runtime.env.DEVTEAM_WORKTREE_REPO_A_FEAT_REMOTE_PATH, '/remote/dev/repos/repo-a');
 }
 
+function testRuntimeBindWritesStableWorkspaceState() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-runtime-bind-'));
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees:',
+    '  repo_a__feat:',
+    '    repo: repo-a',
+    '    path: repos/repo-a',
+    '    branch: feat',
+    'tracks:',
+    '  feat-a:',
+    '    worktrees: ["repo_a__feat"]',
+    '    env: remote-vllm',
+    '    sync: remote-vllm',
+    'environments:',
+    '  remote-a:',
+    '    kind: ssh_host',
+    '    ssh: "ssh root@10.0.0.1"',
+    '    proxy:',
+    '      all_proxy: "socks5h://machine:1080"',
+    '      no_proxy: "localhost,127.0.0.1"',
+    'env_profiles:',
+    '  remote-vllm:',
+    '    type: remote_dev',
+    '    environment: remote-a',
+    '    work_dir: "/remote/dev"',
+    '    proxy:',
+    '      http_proxy: "http://track:8080"',
+    'defaults:',
+    '  track: feat-a',
+    '  env: remote-vllm',
+    '  sync: remote-vllm',
+    '',
+  ].join('\n'));
+
+  const before = runCli(root, ['status', '--root', root, '--json']);
+  assert.strictEqual(before.runtime.binding.exists, false);
+  assert.ok(before.next_actions.some(action => action.includes('env bind')));
+
+  const binding = runCli(root, ['env', 'bind', '--root', root, '--set', 'feat-a']);
+  assert.strictEqual(binding.action, 'runtime_bind');
+  assert.strictEqual(binding.scope, 'feat-a__profile-remote-vllm__env-remote-a');
+  assert.ok(binding.shell_path.endsWith('/.devteam/state/runtime-feat-a__profile-remote-vllm__env-remote-a.sh'));
+  assert.ok(binding.json_path.endsWith('/.devteam/state/runtime-feat-a__profile-remote-vllm__env-remote-a.json'));
+  assert.ok(fs.existsSync(binding.shell_path));
+  assert.ok(fs.existsSync(binding.json_path));
+  assert.match(binding.source, /^\. '.*runtime-feat-a__profile-remote-vllm__env-remote-a\.sh'$/);
+
+  const shell = fs.readFileSync(binding.shell_path, 'utf8');
+  assert.match(shell, /export DEVTEAM_TRACK='feat-a'/);
+  assert.match(shell, /export HTTP_PROXY='http:\/\/track:8080'/);
+  assert.match(shell, /export ALL_PROXY='socks5h:\/\/machine:1080'/);
+  assert.match(shell, /export DEVTEAM_WORKTREE_REPO_A_FEAT_REMOTE_PATH='\/remote\/dev\/repos\/repo-a'/);
+
+  const persisted = JSON.parse(fs.readFileSync(binding.json_path, 'utf8'));
+  assert.strictEqual(persisted.bound_at, binding.bound_at);
+  assert.strictEqual(persisted.digest, binding.digest);
+  assert.strictEqual(persisted.context.env.HTTP_PROXY, 'http://track:8080');
+
+  const text = runCliText(root, ['env', 'bind', '--root', root, '--set', 'feat-a', '--text']);
+  assert.match(text, /Runtime Binding/);
+  assert.match(text, /\. '.*runtime-feat-a__profile-remote-vllm__env-remote-a\.sh'/);
+
+  const after = runCli(root, ['status', '--root', root, '--json']);
+  assert.strictEqual(after.runtime.binding.exists, true);
+  assert.strictEqual(after.runtime.binding.current, true);
+  assert.strictEqual(after.runtime.binding.shell_path, binding.shell_path);
+  assert.ok(after.next_actions.includes(binding.source));
+}
+
 function testSessionStartWritesRuntimeShell() {
   const root = createStandardWorkspace('devteam-session-runtime-');
   const result = runCli(root, ['session', 'start', '--root', root, '--set', 'feat-a', '--no-build', '--no-deploy']);
@@ -5079,6 +5150,7 @@ function main() {
   testVllmRefreshCommandUsesEditablePrecompiledInstall();
   testEnvProfileInheritsEnvironmentMachineFacts();
   testRuntimeContextBindsEnvProxyAndWorktrees();
+  testRuntimeBindWritesStableWorkspaceState();
   testSessionStartWritesRuntimeShell();
   testSessionStatusBackfillsRuntimeForOldRuns();
   testValidatePlanIncludesRuntimeForK8sDev();

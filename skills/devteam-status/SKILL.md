@@ -31,12 +31,12 @@ python3 scripts/devteam_status_summary.py --root <workspace-root>
 
 Default output is the compact daily dashboard. It starts from harness state:
 selected track/feature, repo upstream drift, worktree dirty/missing state,
-effective environment/runtime exports, proxy binding, sync state, presence,
-primary next action, recent runs, and history cleanup hint. When a latest run is
-present, it can also show session evidence/gates as secondary context. Track
-selection order is `--set`, then `DEVTEAM_TRACK`, then `.devteam/config.yaml
-defaults.track`. Feature selection is `--feat`, then `DEVTEAM_FEAT`, then
-`defaults.feat`.
+effective environment/runtime exports, stable runtime binding, proxy binding,
+sync state, presence, primary next action, recent runs, and history cleanup
+hint. When a latest run is present, it can also show session evidence/gates as
+secondary context. Track selection order is `--set`, then `DEVTEAM_TRACK`, then
+`.devteam/config.yaml defaults.track`. Feature selection is `--feat`, then
+`DEVTEAM_FEAT`, then `defaults.feat`.
 Use `--full` only when the user
 asks for detailed evidence, gate internals, dirty-file details, or run-history
 issue details.
@@ -75,7 +75,8 @@ Summarize these points:
 - workspace root, track, optional feature
 - repo/upstream status: behind and unknown counts
 - worktree count, dirty worktrees, branch/head
-- effective environment profile, runtime export availability, and proxy binding
+- effective environment profile, runtime export availability, stable binding
+  file, and proxy binding
 - sync state and presence
 - latest run id, phase, and reason when a run exists
 - evidence/gates only when relevant to the user's question or next action

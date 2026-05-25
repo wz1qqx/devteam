@@ -45,7 +45,7 @@ Route `/devteam <action>` to the matching lightweight command:
 | `status` | `status` | One-screen harness status |
 | `doctor` | `doctor [agent-onboarding]` | Workspace/env/sync/onboarding checks |
 | `ws` | `ws status|materialize|publish-plan|publish` | Local worktree inventory and publish planning |
-| `env` | `env list|show|environments|doctor|refresh` | Machine/cluster environments plus remote/k8s env profile checks and refresh |
+| `env` | `env list|show|environments|doctor|runtime|bind|refresh` | Machine/cluster environments, runtime bindings, and remote/k8s env profile checks |
 | `capability` | `capability list|show` | CRD-like validation/build/deploy capability standards |
 | `validate` | `validate list|plan` | CR-like validation instance selection and read-only plans |
 | `sync` | `sync plan|apply|status` | Local-to-remote sync planning/execution |
@@ -65,8 +65,10 @@ Route `/devteam <action>` to the matching lightweight command:
   `DEVTEAM_FEAT` when working on a feature under that track.
 - Use presence as a hint for concurrent sessions, not as a hard lock.
 - Use `repo status` before branch updates or when upstream freshness matters.
-- Source `env runtime` output before remote/K8s helper commands so proxies,
-  work directories, namespaces, and worktree paths are available in that shell.
+- Prefer `env bind --text` before remote/K8s helper commands. It writes a
+  stable `.devteam/state/runtime-*.sh` source file for the selected
+  track/feature/profile/environment so new shells inherit proxies, work
+  directories, namespaces, and worktree paths.
 
 ## Mutation Discipline
 
