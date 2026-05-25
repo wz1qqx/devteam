@@ -431,15 +431,22 @@ def emit_track_picker(track_list: dict, cli: Path, root: Path) -> None:
     print("```")
 
 
-def emit_bootstrap(cli: Path, root: Path, track: Optional[str], feat: Optional[str] = None) -> None:
+def emit_bootstrap(cli: Path, root: Path, track: Optional[str], feat: Optional[str] = None, status: Optional[dict] = None) -> None:
+    status = status or {}
+    selection_binding = status.get("selection_binding") or {}
+    runtime_binding = ((status.get("runtime") or {}).get("binding") or {})
     print("\nBootstrap")
     print("```bash")
     print(f"cd {quoted(root)}")
     print(f"export DEVTEAM_BIN={quoted(cli)}")
-    if track:
+    if selection_binding.get("exists") and selection_binding.get("source"):
+        print(selection_binding.get("source"))
+    elif track:
         print(f"export DEVTEAM_TRACK={quoted(track)}")
-    if feat:
+    if not (selection_binding.get("exists") and selection_binding.get("source")) and feat:
         print(f"export DEVTEAM_FEAT={quoted(feat)}")
+    if runtime_binding.get("exists") and runtime_binding.get("current") and runtime_binding.get("source"):
+        print(runtime_binding.get("source"))
     print(f"dt() {{ node \"$DEVTEAM_BIN\" \"$@\" --root {quoted(root)}; }}")
     print("```")
 
@@ -744,7 +751,7 @@ def main() -> None:
     for item in primary_next(status):
         print(f"- {display_command(item, cli, root)}")
 
-    emit_bootstrap(cli, root, track, feat)
+    emit_bootstrap(cli, root, track, feat, status)
     if args.full:
         emit_command_groups(status, cli, root, args.full, track_profile)
     else:
