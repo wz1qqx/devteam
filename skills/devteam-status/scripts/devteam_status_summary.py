@@ -705,6 +705,15 @@ def emit_brief_workspace_summary(
     if binding:
         state = "current" if binding.get("exists") and binding.get("current") else ("stale" if binding.get("exists") else "missing")
         print(f"- Runtime binding: {state} {binding.get('shell_path') or '-'}")
+    bootstrap = environment.get("bootstrap") or {}
+    if bootstrap:
+        recipe = bootstrap.get("recipe") or {}
+        print(
+            "- Env bootstrap: "
+            f"{bootstrap.get('status') or '-'} "
+            f"commands={bootstrap.get('command_count', 0)} "
+            f"recipe={recipe.get('path') or '-'}"
+        )
     print(
         "- Worktrees: "
         f"{totals.get('present', 0)}/{totals.get('worktrees', 0)} present, "

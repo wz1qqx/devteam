@@ -45,7 +45,7 @@ Route `/devteam <action>` to the matching lightweight command:
 | `status` | `status` | One-screen harness status |
 | `doctor` | `doctor [agent-onboarding]` | Workspace/env/sync/onboarding checks |
 | `ws` | `ws status|materialize|publish-plan|publish` | Local worktree inventory and publish planning |
-| `env` | `env list|show|environments|doctor|runtime|bind|refresh` | Machine/cluster environments, runtime bindings, and remote/k8s env profile checks |
+| `env` | `env list|show|environments|doctor|runtime|bind|bootstrap|refresh` | Machine/cluster environments, runtime bindings, bootstrap plans, and remote/k8s checks |
 | `capability` | `capability list|show` | CRD-like validation/build/deploy capability standards |
 | `validate` | `validate list|plan` | CR-like validation instance selection and read-only plans |
 | `sync` | `sync plan|apply|status` | Local-to-remote sync planning/execution |
@@ -69,6 +69,10 @@ Route `/devteam <action>` to the matching lightweight command:
   stable `.devteam/state/runtime-*.sh` source file for the selected
   track/feature/profile/environment so new shells inherit proxies, work
   directories, namespaces, and worktree paths.
+- Use `env bootstrap --text` to inspect initial machine/cluster setup. It is
+  read-only and prints recipe/preflight/configured commands for manual review;
+  do not execute those commands unless the user explicitly asks to initialize
+  that environment.
 
 ## Mutation Discipline
 

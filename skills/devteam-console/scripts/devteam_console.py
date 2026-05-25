@@ -501,6 +501,7 @@ def emit_command_groups(status: dict, cli: Path, root: Path, full: bool, track_p
 
     print("- Remote env:")
     env_hint = env_profile or "<env-profile>"
+    emit_cmd(f"env bootstrap {scope} --profile {env_hint} --text".strip())
     if stale_run:
         print("  - current run is stale; start a fresh run before recording env evidence")
         emit_cmd(f"env doctor --profile {env_hint} --remote")
@@ -579,6 +580,7 @@ def emit_daily_shortcuts(status: dict, cli: Path, root: Path, track_profile: Opt
 
     print("- Verify / build:")
     env_hint = env_profile or "<env-profile>"
+    emit_cmd(f"env bootstrap {scope} --profile {env_hint} --text".strip())
     if stale_run:
         print("  - current run is stale; start a fresh run before recording evidence")
         emit_cmd(f"env doctor --profile {env_hint} --remote")
@@ -699,6 +701,15 @@ def main() -> None:
         if binding:
             state = "current" if binding.get("exists") and binding.get("current") else ("stale" if binding.get("exists") else "missing")
             print(f"- Runtime binding: {state} {binding.get('shell_path') or '-'}")
+        bootstrap = environment.get("bootstrap") or {}
+        if bootstrap:
+            recipe = bootstrap.get("recipe") or {}
+            print(
+                "- Env bootstrap: "
+                f"{bootstrap.get('status') or '-'} "
+                f"commands={bootstrap.get('command_count', 0)} "
+                f"recipe={recipe.get('path') or '-'}"
+            )
     print(f"- Evidence: {evidence_text(status)}")
     print(
         "- Gates: "

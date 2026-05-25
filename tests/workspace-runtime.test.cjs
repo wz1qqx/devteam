@@ -4386,6 +4386,104 @@ function testEnvDoctorCanAutoRecordToSessionRun() {
   assert.match(readme, /env doctor pass for local \(local\)/);
 }
 
+function testEnvBootstrapPlansRemoteProfileWithoutExecuting() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-env-bootstrap-'));
+  writeFile(path.join(root, '.devteam', 'recipes', 'bootstrap.md'), '# bootstrap\n');
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees:',
+    '  repo_a__feat:',
+    '    repo: repo-a',
+    '    path: repos/repo-a',
+    '    sync:',
+    '      profile: remote-vllm',
+    'tracks:',
+    '  feat-a:',
+    '    worktrees: ["repo_a__feat"]',
+    '    env: remote-vllm',
+    'environments:',
+    '  remote-a:',
+    '    kind: ssh_host',
+    '    ssh: "ssh root@10.0.0.1"',
+    '    proxy:',
+    '      http_proxy: "http://proxy:8080"',
+    '      no_proxy: "localhost,127.0.0.1"',
+    'env_profiles:',
+    '  remote-vllm:',
+    '    type: remote_dev',
+    '    environment: remote-a',
+    '    work_dir: "/remote/dev"',
+    '    source_dir: "/remote/dev/repos/repo-a"',
+    '    venv: "/remote/venv"',
+    '    python: "/remote/venv/bin/python"',
+    '    bootstrap: ".devteam/recipes/bootstrap.md"',
+    'defaults:',
+    '  track: feat-a',
+    '  env: remote-vllm',
+    '',
+  ].join('\n'));
+
+  const plan = runCli(root, ['env', 'bootstrap', '--root', root, '--set', 'feat-a']);
+  assert.strictEqual(plan.action, 'env_bootstrap_plan');
+  assert.strictEqual(plan.dry_run, true);
+  assert.strictEqual(plan.status, 'planned');
+  assert.strictEqual(plan.recipe.exists, true);
+  assert.strictEqual(plan.worktrees[0].remote_path, '/remote/dev/repos/repo-a');
+  assert.match(plan.runtime.bind_command, /env bind .*--set 'feat-a'.*--profile 'remote-vllm'/);
+  assert.strictEqual(plan.commands.length, 1);
+  assert.strictEqual(plan.commands[0].kind, 'remote_preflight');
+  assert.match(plan.commands[0].command, /^ssh root@10\.0\.0\.1 /);
+  assert.match(plan.commands[0].command, /HTTP_PROXY/);
+  assert.match(plan.commands[0].command, /mkdir -p/);
+  assert.match(plan.commands[0].command, /source_dir_missing/);
+  assert.match(plan.commands[0].command, /venv_missing/);
+
+  const text = runCliText(root, ['env', 'bootstrap', '--root', root, '--set', 'feat-a', '--text']);
+  assert.match(text, /Env Bootstrap Plan/);
+  assert.match(text, /Bootstrap Recipe:/);
+
+  const status = runCli(root, ['status', '--root', root, '--json']);
+  assert.strictEqual(status.environment.bootstrap.status, 'planned');
+  assert.strictEqual(status.environment.bootstrap.command_count, 1);
+}
+
+function testEnvBootstrapPlansK8sProfileWithoutExecuting() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-env-bootstrap-k8s-'));
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees: {}',
+    'tracks: {}',
+    'environments:',
+    '  dev-cluster:',
+    '    kind: k8s_cluster',
+    '    kubeconfig: "/tmp/kubeconfig"',
+    '    proxy:',
+    '      http_proxy: "http://cluster-proxy:8080"',
+    'env_profiles:',
+    '  k8s-dev:',
+    '    type: k8s',
+    '    environment: dev-cluster',
+    '    namespace: dev',
+    '    bootstrap_commands:',
+    '      - "kubectl get pods -n dev"',
+    'defaults:',
+    '  env: k8s-dev',
+    '',
+  ].join('\n'));
+
+  const plan = runCli(root, ['env', 'bootstrap', '--root', root, '--profile', 'k8s-dev']);
+  assert.strictEqual(plan.status, 'planned');
+  assert.strictEqual(plan.type, 'k8s');
+  assert.strictEqual(plan.commands.length, 2);
+  assert.strictEqual(plan.commands[0].kind, 'k8s_preflight');
+  assert.match(plan.commands[0].command, /KUBECONFIG='\/tmp\/kubeconfig'/);
+  assert.match(plan.commands[0].command, /kubectl get namespace "dev"/);
+  assert.strictEqual(plan.commands[1].kind, 'configured');
+  assert.match(plan.commands[1].command, /kubectl get pods -n dev/);
+}
+
 function testWorkspaceScaffoldCreatesRegistryLaneLayout() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-layout-'));
   const result = runCli(root, [
@@ -5141,6 +5239,8 @@ function main() {
   testSyncApplyCanAutoRecordToSessionRun();
   testEnvRefreshCanAutoRecordToSessionRun();
   testEnvDoctorCanAutoRecordToSessionRun();
+  testEnvBootstrapPlansRemoteProfileWithoutExecuting();
+  testEnvBootstrapPlansK8sProfileWithoutExecuting();
   testWorkspaceScaffoldCreatesRegistryLaneLayout();
   testWorkspaceOnboardingContextTrackContextAndHandoff();
   testKnowledgeListSearchLintAndCaptureRun();

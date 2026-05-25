@@ -60,6 +60,10 @@ be treated as global active state when multiple sessions may be open.
   written by `env bind`. The filename includes the selected track, feature,
   profile, and environment so frequent environment switching does not overwrite
   another session's binding.
+- **Environment Bootstrap Plan**: a read-only `env bootstrap` plan for initial
+  machine or cluster setup. It resolves the selected profile/environment,
+  reports the bootstrap recipe, directories, runtime bind command, and manual
+  preflight/configured commands without executing remote or K8s mutations.
 - **Run**: an optional auditable directory under `.devteam/runs/<run-id>/`
   containing session metadata, evidence events, a generated README, and
   `runtime.sh`. Runs are useful for validation handoff, but normal development
@@ -214,7 +218,7 @@ memory.
 - `status`
 - `doctor [agent-onboarding]`
 - `ws status|materialize|publish-plan|publish`
-- `env list|show|environments|doctor|runtime|bind|refresh`
+- `env list|show|environments|doctor|runtime|bind|bootstrap|refresh`
 - `capability list|show`
 - `validate list|plan`
 - `sync plan|apply|status`
@@ -238,7 +242,8 @@ docs live in `commands/devteam/*.md`.
 - `lib/session-manager.cjs`: run sessions, evidence, gates, lifecycle cleanup, and handoff.
 - `lib/presence.cjs`: concurrent session presence hints.
 - `lib/workspace-inventory.cjs`: local worktree status and publish planning.
-- `lib/env-profile.cjs`: remote/k8s environment profile doctor and refresh.
+- `lib/env-profile.cjs`: remote/k8s environment profile bootstrap plans,
+  doctor, and refresh.
 - `lib/runtime-context.cjs`: effective env/profile/worktree runtime exports and
   stable `.devteam/state/runtime-*.sh` bindings for sessions, validation plans,
   and deploy plans.

@@ -79,7 +79,8 @@ should feel like a daily work entrypoint rather than a command reference page.
 Relay the script output directly or summarize it with the same structure:
 
 - current workspace, active track, optional feature, repo/upstream state,
-  effective env/runtime, stable runtime binding file, latest run when available
+  effective env/runtime, stable runtime binding file, bootstrap plan status,
+  latest run when available
 - track source (`--set`, `DEVTEAM_TRACK`, single track, or workspace default)
 - track picker dashboard with aliases, dirty/missing worktrees, latest run,
   phase, build profile, active session presence, and next action when no track
@@ -101,6 +102,9 @@ If the runtime binding is missing or stale, recommend `env bind --text` for the
 selected track/feature before remote or K8s helper work. The user should source
 the printed `.devteam/state/runtime-*.sh` file in new shells so proxy, workdir,
 namespace, and worktree path exports stay aligned with the harness selection.
+Use `env bootstrap --text` when the user needs initial machine or cluster setup;
+it is a read-only plan that prints recipe/preflight/configured commands for
+manual review and must not be executed without explicit user intent.
 
 If the selected run is stale because the local worktree HEAD changed after its
 evidence was recorded, treat the run as read-only history. The console should
