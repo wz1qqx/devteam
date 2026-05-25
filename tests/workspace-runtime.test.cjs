@@ -2206,7 +2206,20 @@ function testTrackListStatusAndUseUpdatesDefaults() {
   const harnessWithBinding = runCli(root, ['status', '--root', root, '--json']);
   assert.strictEqual(harnessWithBinding.selection_binding.exists, true);
   assert.strictEqual(harnessWithBinding.selection_binding.track, 'v0201');
+  assert.strictEqual(harnessWithBinding.workspace_set, 'v0201');
+  assert.strictEqual(harnessWithBinding.workspace_set_source, 'binding:session');
+  assert.strictEqual(harnessWithBinding.environment.profile, 'remote-test-v0201');
+  assert.deepStrictEqual(harnessWithBinding.worktrees.entries.map(item => item.id), ['repo_a__v0201']);
   assert.ok(harnessWithBinding.next_actions.includes(binding.binding.source));
+  const explicitHarness = runCli(root, ['status', '--root', root, '--json', '--set', 'old']);
+  assert.strictEqual(explicitHarness.workspace_set, 'old');
+  assert.strictEqual(explicitHarness.workspace_set_source, 'explicit');
+  assert.strictEqual(explicitHarness.environment.profile, 'remote-test-old');
+  const envHarness = runCliWithEnv(root, ['status', '--root', root, '--json'], {
+    DEVTEAM_TRACK: 'old',
+  });
+  assert.strictEqual(envHarness.workspace_set, 'old');
+  assert.strictEqual(envHarness.workspace_set_source, 'env');
 
   const dryRun = runCli(root, ['track', 'use', 'v0201', '--root', root, '--dry-run']);
   assert.strictEqual(dryRun.dry_run, true);

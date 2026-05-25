@@ -31,9 +31,10 @@ node "$DEVTEAM_BIN" workspace context --root "$PWD" --for codex --text
 node "$DEVTEAM_BIN" track list --root "$PWD" --active-only --text
 ```
 
-`workspace context` reads `.devteam/state/selection-session.json` when no
-explicit `--set` or `DEVTEAM_TRACK` is present, then shows the matching runtime
-binding and bootstrap summary.
+`workspace context` and daily harness `status` read
+`.devteam/state/selection-session.json` when no explicit `--set` or
+`DEVTEAM_TRACK` is present, then show the matching runtime binding and
+bootstrap summary.
 
 ## Command Surface
 

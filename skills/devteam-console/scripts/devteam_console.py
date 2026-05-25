@@ -626,6 +626,11 @@ def main() -> None:
 
     selected_set = args.set or env_track()
     selected_feature = args.feat or env_feat()
+    status = None
+    if not args.tracks_only and not selected_set and not args.run and not args.use_default:
+        status = run_json(cli, root, ["status", "--json"])
+        selected_set = selected_track(status or {})
+        selected_feature = selected_feat(status or {})
     if args.tracks_only or (not selected_set and not args.run and not args.use_default):
         track_list_args = ["track", "list"]
         if not args.all_tracks:
@@ -645,7 +650,8 @@ def main() -> None:
         status_args.extend(["--run", args.run])
     elif selected_set:
         status_args.extend(scope_args(selected_set, selected_feature))
-    status = run_json(cli, root, status_args)
+    if status is None:
+        status = run_json(cli, root, status_args)
     if not status:
         sys.stderr.write("Failed to read devteam status.\n")
         raise SystemExit(1)
@@ -663,7 +669,7 @@ def main() -> None:
     print(f"- Track: {track or '-'}")
     if feat:
         print(f"- Feature: {feat}")
-    track_source = "--set" if args.set else ("DEVTEAM_TRACK" if env_track() else ("single track" if selected_set else "workspace default"))
+    track_source = "--set" if args.set else ("DEVTEAM_TRACK" if env_track() else (status.get("workspace_set_source") or ("single track" if selected_set else "workspace default")))
     print(f"- Track source: {track_source}")
     if track and not args.no_presence:
         presence_args = ["presence", "touch", *scope_args(str(track), feat), "--tool", "devteam-console"]

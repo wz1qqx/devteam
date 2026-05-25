@@ -34,10 +34,11 @@ selected track/feature, repo upstream drift, worktree dirty/missing state,
 effective environment/runtime exports, stable runtime binding, proxy binding,
 bootstrap plan status, sync state, presence, primary next action, recent runs,
 and history cleanup hint. When a latest run is present, it can also show session
-evidence/gates as secondary context. `workspace context` reads the stable
-`.devteam/state/selection-session.json` binding when no explicit `--set` or
-`DEVTEAM_TRACK` is present. `status` still reports the binding source alongside
-the effective selected track so the user can source or rebind it deliberately.
+evidence/gates as secondary context. `workspace context` and daily harness
+`status` read the stable `.devteam/state/selection-session.json` binding when
+no explicit `--set` or `DEVTEAM_TRACK` is present; pass `--scope <name>` for a
+non-default selection binding. `status` also reports the binding source so the
+user can source or rebind it deliberately.
 Use `--full` only when the user
 asks for detailed evidence, gate internals, dirty-file details, or run-history
 issue details.
