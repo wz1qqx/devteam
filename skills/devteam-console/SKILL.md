@@ -102,10 +102,13 @@ do not run `sync apply --yes`, `env refresh --yes`, `image prepare`, `ws publish
 --yes`, `deploy record`, or `session archive --yes` just because they appear in
 the console.
 
-If the runtime binding is missing or stale, recommend `env bind --text` for the
-selected track/feature before remote or K8s helper work. The user should source
-the printed `.devteam/state/runtime-*.sh` file in new shells so proxy, workdir,
-namespace, and worktree path exports stay aligned with the harness selection.
+If the runtime binding is missing or stale, recommend
+`workspace activate --set <track> [--feat <feat>] --text` for the selected
+track/feature before remote or K8s helper work. This writes both selection and
+runtime bindings without changing workspace defaults. The user should source
+the printed `.devteam/state/selection-*.sh` and `.devteam/state/runtime-*.sh`
+files in new shells so proxy, workdir, namespace, and worktree path exports stay
+aligned with the harness selection.
 Use `env bootstrap --text` when the user needs initial machine or cluster setup;
 it is a read-only plan that prints recipe/preflight/configured commands for
 manual review and must not be executed without explicit user intent.

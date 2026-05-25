@@ -36,13 +36,17 @@ node "$DEVTEAM_BIN" track list --root "$PWD" --active-only --text
 `DEVTEAM_TRACK` is present, then show the matching runtime binding and
 bootstrap summary.
 
+Use `workspace activate --set <track> [--feat <feat>] --text` when one command
+should write both the stable selection binding and the matching runtime binding.
+It does not change workspace defaults or execute remote/K8s commands.
+
 ## Command Surface
 
 Route `/devteam <action>` to the matching lightweight command:
 
 | Action | Command | Purpose |
 | --- | --- | --- |
-| `workspace` | `workspace scaffold|onboard|context` | Workspace layout and agent onboarding/context |
+| `workspace` | `workspace scaffold|onboard|context|activate` | Workspace layout, binding activation, and agent onboarding/context |
 | `track` | `track list|status|context|bind|use` | Track discovery and session-local binding |
 | `presence` | `presence list|touch|clear` | Concurrent session soft-lock hints |
 | `repo` | `repo list|status|fetch|update-plan` | Repo/upstream state and clean update planning |

@@ -4728,6 +4728,24 @@ function testWorkspaceOnboardingContextTrackContextAndHandoff() {
   assert.match(boundContextText, /Runtime binding:/);
   assert.match(boundContextText, /proxy=no/);
 
+  const activated = runCli(root, ['workspace', 'activate', '--root', root, '--set', 'feature-a']);
+  assert.strictEqual(activated.action, 'workspace_activate');
+  assert.strictEqual(activated.track, 'feature-a');
+  assert.ok(fs.existsSync(activated.selection_binding.shell_path));
+  assert.ok(fs.existsSync(activated.runtime_binding.shell_path));
+  assert.strictEqual(activated.sources.length, 2);
+  assert.match(activated.sources[0], /selection-session\.sh/);
+  assert.match(activated.sources[1], /runtime-feature-a__profile-remote-test-feature\.sh/);
+  const activatedStatus = runCli(root, ['status', '--root', root, '--json']);
+  assert.strictEqual(activatedStatus.workspace_set, 'feature-a');
+  assert.strictEqual(activatedStatus.workspace_set_source, 'binding:session');
+  assert.strictEqual(activatedStatus.runtime.binding.exists, true);
+  assert.strictEqual(activatedStatus.runtime.binding.current, true);
+  const activatedText = runCliText(root, ['workspace', 'activate', '--root', root, '--set', 'feature-a', '--text']);
+  assert.match(activatedText, /Workspace Activate/);
+  assert.match(activatedText, /selection-session\.sh/);
+  assert.match(activatedText, /runtime-feature-a__profile-remote-test-feature\.sh/);
+
   const trackContext = runCli(root, ['track', 'context', '--root', root, '--set', 'feat-a']);
   assert.strictEqual(trackContext.action, 'track_context');
   assert.strictEqual(trackContext.track.name, 'feature-a');

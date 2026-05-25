@@ -155,6 +155,18 @@ effective runtime profile, runtime binding source or bind command, and
 bootstrap plan summary so new shells and agent sessions can pick up the same
 environment/proxy/worktree state.
 
+To switch a shell or agent session to one track/environment in a single
+harness-managed step:
+
+```bash
+node lib/devteam.cjs workspace activate --root "$PWD" --set "<track>" --text
+node lib/devteam.cjs workspace activate --root "$PWD" --set "<track>" --feat "<feat>" --text
+```
+
+`workspace activate` writes both the session-local selection binding and the
+matching runtime binding. It does not modify `.devteam/config.yaml`, run SSH,
+apply Kubernetes resources, sync files, build images, or deploy anything.
+
 For the track picker:
 
 ```bash

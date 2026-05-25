@@ -38,7 +38,9 @@ evidence/gates as secondary context. `workspace context` and daily harness
 `status` read the stable `.devteam/state/selection-session.json` binding when
 no explicit `--set` or `DEVTEAM_TRACK` is present; pass `--scope <name>` for a
 non-default selection binding. `status` also reports the binding source so the
-user can source or rebind it deliberately.
+user can source or rebind it deliberately. Use
+`workspace activate --set <track> [--feat <feat>] --text` to refresh selection
+and runtime bindings together without changing workspace defaults.
 Use `--full` only when the user
 asks for detailed evidence, gate internals, dirty-file details, or run-history
 issue details.
