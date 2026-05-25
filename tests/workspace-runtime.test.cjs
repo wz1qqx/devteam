@@ -4565,6 +4565,80 @@ function testEnvBootstrapPlansRemoteProfileWithoutExecuting() {
   assert.strictEqual(status.environment.bootstrap.command_count, 1);
 }
 
+function testEnvRemoteStatusComparesSelectedWorktreeToRemoteSource() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-env-remote-status-'));
+  const local = path.join(root, 'worktrees', 'feat-a', 'repo-a');
+  const remote = path.join(root, 'remote', 'repo-a');
+  writeFile(path.join(local, 'README.md'), '# repo-a\n');
+  execFileSync('git', ['init'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['checkout', '-b', 'feat-a'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: local });
+  execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: local });
+  execFileSync('git', ['add', '.'], { cwd: local });
+  execFileSync('git', ['commit', '-m', 'init'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['clone', local, remote], { stdio: ['ignore', 'ignore', 'ignore'] });
+
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees:',
+    '  repo_a__feat:',
+    '    repo: repo-a',
+    '    path: worktrees/feat-a/repo-a',
+    '    branch: feat-a',
+    '    sync:',
+    '      profile: remote-vllm',
+    `      remote_path: "${remote}"`,
+    'tracks:',
+    '  feat-a:',
+    '    worktrees: ["repo_a__feat"]',
+    '    env: remote-vllm',
+    '    sync: remote-vllm',
+    'env_profiles:',
+    '  remote-vllm:',
+    '    type: remote_dev',
+    '    ssh: "sh -c"',
+    '    host: "local-shell"',
+    `    source_dir: "${remote}"`,
+    'defaults:',
+    '  track: feat-a',
+    '  env: remote-vllm',
+    '  sync: remote-vllm',
+    '',
+  ].join('\n'));
+
+  const match = runCli(root, ['env', 'remote-status', '--root', root, '--set', 'feat-a']);
+  assert.strictEqual(match.action, 'env_remote_status');
+  assert.strictEqual(match.status, 'match');
+  assert.strictEqual(match.sources[0].status, 'match');
+  assert.strictEqual(match.sources[0].local.branch, 'feat-a');
+  assert.strictEqual(match.sources[0].remote.branch, 'feat-a');
+  assert.strictEqual(match.sources[0].local.head, match.sources[0].remote.head);
+
+  writeFile(path.join(remote, 'remote-dirty.txt'), 'remote dirty\n');
+  writeFile(path.join(local, 'local-change.txt'), 'local change\n');
+  execFileSync('git', ['add', '.'], { cwd: local });
+  execFileSync('git', ['commit', '-m', 'local change'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+
+  const drift = runCli(root, ['env', 'remote-status', '--root', root, '--set', 'feat-a']);
+  assert.strictEqual(drift.status, 'drift');
+  assert.strictEqual(drift.totals.remote_dirty, 1);
+  assert.strictEqual(drift.totals.head_mismatch, 1);
+  assert.ok(drift.sources[0].problems.includes('remote_dirty'));
+  assert.ok(drift.sources[0].problems.includes('head_mismatch'));
+  assert.strictEqual(drift.sources[0].remote.dirty_summary.total, 1);
+
+  const hiddenFiles = runCli(root, ['env', 'remote-status', '--root', root, '--set', 'feat-a', '--dirty-limit', '0']);
+  assert.strictEqual(hiddenFiles.sources[0].remote.dirty_summary.total, 1);
+  assert.strictEqual(hiddenFiles.sources[0].remote.dirty_files.length, 0);
+  assert.strictEqual(hiddenFiles.sources[0].remote.dirty_truncated, true);
+
+  const text = runCliText(root, ['env', 'remote-status', '--root', root, '--set', 'feat-a', '--text']);
+  assert.match(text, /Env Remote Status/);
+  assert.match(text, /repo_a__feat\s+drift/);
+  assert.match(text, /remote_dirty/);
+}
+
 function testEnvBootstrapPlansK8sProfileWithoutExecuting() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-env-bootstrap-k8s-'));
   writeFile(path.join(root, '.devteam', 'config.yaml'), [
@@ -5389,6 +5463,7 @@ function main() {
   testEnvRefreshCanAutoRecordToSessionRun();
   testEnvDoctorCanAutoRecordToSessionRun();
   testEnvBootstrapPlansRemoteProfileWithoutExecuting();
+  testEnvRemoteStatusComparesSelectedWorktreeToRemoteSource();
   testEnvBootstrapPlansK8sProfileWithoutExecuting();
   testWorkspaceScaffoldCreatesRegistryLaneLayout();
   testWorkspaceOnboardingContextTrackContextAndHandoff();

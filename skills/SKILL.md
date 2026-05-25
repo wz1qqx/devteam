@@ -54,7 +54,7 @@ Route `/devteam <action>` to the matching lightweight command:
 | `status` | `status` | One-screen harness status |
 | `doctor` | `doctor [agent-onboarding]` | Workspace/env/sync/onboarding checks |
 | `ws` | `ws status|materialize|publish-plan|publish` | Local worktree inventory and publish planning |
-| `env` | `env list|show|environments|doctor|runtime|bind|bootstrap|refresh` | Machine/cluster environments, runtime bindings, bootstrap plans, and remote/k8s checks |
+| `env` | `env list|show|environments|doctor|runtime|bind|bootstrap|remote-status|refresh` | Machine/cluster environments, runtime bindings, bootstrap plans, and remote/k8s checks |
 | `capability` | `capability list|show` | CRD-like validation/build/deploy capability standards |
 | `validate` | `validate list|plan` | CR-like validation instance selection and read-only plans |
 | `sync` | `sync plan|apply|status` | Local-to-remote sync planning/execution |
@@ -85,6 +85,9 @@ Route `/devteam <action>` to the matching lightweight command:
   read-only and prints recipe/preflight/configured commands for manual review;
   do not execute those commands unless the user explicitly asks to initialize
   that environment.
+- Use `env remote-status --text` before sync or env refresh when remote state
+  matters. It is read-only and compares the selected local worktree to the
+  remote source mirror branch/head/dirty state.
 
 ## Mutation Discipline
 

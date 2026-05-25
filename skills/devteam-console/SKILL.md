@@ -112,6 +112,9 @@ aligned with the harness selection.
 Use `env bootstrap --text` when the user needs initial machine or cluster setup;
 it is a read-only plan that prints recipe/preflight/configured commands for
 manual review and must not be executed without explicit user intent.
+Use `env remote-status --text` before sync or env refresh when remote source
+state matters; it is read-only and surfaces branch/head/dirty drift between the
+selected local worktree and the configured remote source mirror.
 
 If the selected run is stale because the local worktree HEAD changed after its
 evidence was recorded, treat the run as read-only history. The console should

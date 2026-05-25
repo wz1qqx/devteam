@@ -70,6 +70,10 @@ session needs a stable local selection file without changing workspace defaults.
   machine or cluster setup. It resolves the selected profile/environment,
   reports the bootstrap recipe, directories, runtime bind command, and manual
   preflight/configured commands without executing remote or K8s mutations.
+- **Remote Source Status**: a read-only `env remote-status` check that compares
+  the selected local worktree branch/head/dirty state with the configured
+  remote source mirror. Use it before sync or env refresh when a remote session
+  may be running code from a different branch or dirty checkout.
 - **Run**: an optional auditable directory under `.devteam/runs/<run-id>/`
   containing session metadata, evidence events, a generated README, and
   `runtime.sh`. Runs are useful for validation handoff, but normal development
@@ -243,7 +247,7 @@ memory.
 - `status`
 - `doctor [agent-onboarding]`
 - `ws status|materialize|publish-plan|publish`
-- `env list|show|environments|doctor|runtime|bind|bootstrap|refresh`
+- `env list|show|environments|doctor|runtime|bind|bootstrap|remote-status|refresh`
 - `capability list|show`
 - `validate list|plan`
 - `sync plan|apply|status`

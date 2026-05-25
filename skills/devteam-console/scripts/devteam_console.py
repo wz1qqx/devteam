@@ -510,6 +510,7 @@ def emit_command_groups(status: dict, cli: Path, root: Path, full: bool, track_p
     print("- Remote env:")
     env_hint = env_profile or "<env-profile>"
     emit_cmd(f"env bootstrap {scope} --profile {env_hint} --text".strip())
+    emit_cmd(f"env remote-status {scope} --profile {env_hint} --text".strip())
     if stale_run:
         print("  - current run is stale; start a fresh run before recording env evidence")
         emit_cmd(f"env doctor --profile {env_hint} --remote")
@@ -589,6 +590,7 @@ def emit_daily_shortcuts(status: dict, cli: Path, root: Path, track_profile: Opt
     print("- Verify / build:")
     env_hint = env_profile or "<env-profile>"
     emit_cmd(f"env bootstrap {scope} --profile {env_hint} --text".strip())
+    emit_cmd(f"env remote-status {scope} --profile {env_hint} --text".strip())
     if stale_run:
         print("  - current run is stale; start a fresh run before recording evidence")
         emit_cmd(f"env doctor --profile {env_hint} --remote")
