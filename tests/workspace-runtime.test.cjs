@@ -744,6 +744,30 @@ function testTrackBindWritesFeatureSelectionBinding() {
   assert.strictEqual(scopedStatus.selection_binding.exists, true);
   assert.strictEqual(scopedStatus.selection_binding.track, 'base-track');
   assert.strictEqual(scopedStatus.selection_binding.feat, 'feat-a');
+  const scopedContext = runCli(root, ['workspace', 'context', '--root', root, '--for', 'codex', '--scope', 'codex-a']);
+  assert.strictEqual(scopedContext.selected_source, 'binding:codex-a');
+  assert.strictEqual(scopedContext.selected_feat, 'feat-a');
+
+  const sessionBind = runCli(root, ['track', 'bind', 'base-track', '--feat', 'a', '--root', root, '--write']);
+  const context = runCli(root, ['workspace', 'context', '--root', root, '--for', 'codex']);
+  assert.strictEqual(context.selected_track, 'base-track');
+  assert.strictEqual(context.selected_source, 'binding:session');
+  assert.strictEqual(context.selected_feat, 'feat-a');
+  assert.strictEqual(context.selection_binding.track, 'base-track');
+  assert.strictEqual(context.selection_binding.feat, 'feat-a');
+  assert.strictEqual(context.runtime.profile, 'local');
+  assert.ok(context.recommended_commands.selection_bind.includes('track bind "base-track"'));
+  assert.ok(context.recommended_commands.runtime_bind.includes('env bind'));
+  const contextText = runCliText(root, ['workspace', 'context', '--root', root, '--for', 'codex', '--text']);
+  assert.match(contextText, /selected_track: base-track \(binding:session\)/);
+  assert.match(contextText, /selection_binding: \. '.*selection-session\.sh'/);
+  assert.match(contextText, /Runtime binding:/);
+  assert.match(contextText, /binding: none/);
+
+  const explicitContext = runCli(root, ['workspace', 'context', '--root', root, '--for', 'codex', '--set', 'base-track']);
+  assert.strictEqual(explicitContext.selected_source, 'explicit');
+  assert.strictEqual(explicitContext.selected_feat, null);
+  assert.strictEqual(explicitContext.selection_binding.source, sessionBind.binding.source);
 }
 
 function testWorkspaceStatusIncludesDirtyFileSummary() {
@@ -4658,13 +4682,26 @@ function testWorkspaceOnboardingContextTrackContextAndHandoff() {
   assert.strictEqual(context.name, 'onboarding-test');
   assert.strictEqual(context.default_track, 'feature-a');
   assert.strictEqual(context.selected_track, null);
+  assert.strictEqual(context.runtime, null);
   assert.strictEqual(context.tracks.active[0].name, 'feature-a');
   assert.strictEqual(context.tracks.archived[0].name, 'old-track');
   assert.match(context.recommended_commands.track_picker, /track/);
 
   const contextText = runCliText(root, ['workspace', 'context', '--root', root, '--for', 'codex', '--text']);
   assert.match(contextText, /Devteam Workspace Context/);
-  assert.match(contextText, /Choose a track and optional feature before editing code/);
+  assert.match(contextText, /Bind or choose a track and optional feature before editing code/);
+
+  runCli(root, ['track', 'bind', 'feature-a', '--root', root, '--write']);
+  const boundContext = runCli(root, ['workspace', 'context', '--root', root, '--for', 'codex']);
+  assert.strictEqual(boundContext.selected_track, 'feature-a');
+  assert.strictEqual(boundContext.selected_source, 'binding:session');
+  assert.strictEqual(boundContext.runtime.profile, 'remote-test-feature');
+  assert.strictEqual(boundContext.runtime.binding.exists, false);
+  const boundContextText = runCliText(root, ['workspace', 'context', '--root', root, '--for', 'codex', '--text']);
+  assert.match(boundContextText, /selected_track: feature-a \(binding:session\)/);
+  assert.match(boundContextText, /selection_binding: \. '.*selection-session\.sh'/);
+  assert.match(boundContextText, /Runtime binding:/);
+  assert.match(boundContextText, /proxy=no/);
 
   const trackContext = runCli(root, ['track', 'context', '--root', root, '--set', 'feat-a']);
   assert.strictEqual(trackContext.action, 'track_context');

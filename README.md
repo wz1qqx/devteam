@@ -148,6 +148,13 @@ For a compact agent-facing workspace context:
 node lib/devteam.cjs workspace context --root "$PWD" --for codex --text
 ```
 
+`workspace context` reads the session selection binding in
+`.devteam/state/selection-session.json` when no explicit `--set` or
+`DEVTEAM_TRACK` is present. If a track is bound, the context also shows the
+effective runtime profile, runtime binding source or bind command, and
+bootstrap plan summary so new shells and agent sessions can pick up the same
+environment/proxy/worktree state.
+
 For the track picker:
 
 ```bash
