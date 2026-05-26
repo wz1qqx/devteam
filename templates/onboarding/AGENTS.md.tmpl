@@ -89,18 +89,15 @@ by ad hoc cloning into unrelated directories.
 
 The expected flow is:
 
-1. Choose a track and optional feature.
-2. Inspect current worktree status.
-3. Start or continue a run.
-4. Make local code changes.
+1. Bind or confirm a track and optional feature.
+2. Source the selection/runtime binding files when working in a shell.
+3. Inspect repo/upstream and worktree status.
+4. Make local code changes with the appropriate coding or optimization skill.
 5. Sync changes to the remote validation server when needed.
-6. Validate in the remote venv.
-7. Record test evidence.
-8. Prepare or review the image build plan.
-9. Build an image only when the user asks.
-10. Record image evidence.
-11. Deploy only when the user asks.
-12. Record deploy and deploy-verify evidence.
+6. Validate in the remote venv or K8s environment.
+7. Record run evidence only when a handoff, publish, image, or deploy decision
+   needs durable proof.
+8. Review image or deploy plans only when that workflow is actually in scope.
 
 Do not run expensive build, deploy, publish, or remote mutation commands just
 because they are available. Confirm intent from the user or the current run

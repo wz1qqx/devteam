@@ -21,6 +21,39 @@ function writeFile(filePath, content) {
   fs.writeFileSync(filePath, content, 'utf8');
 }
 
+function writeFakeLocalRsync(binDir) {
+  writeFile(path.join(binDir, 'rsync'), [
+    '#!/bin/sh',
+    'set -eu',
+    'src=',
+    'dest=',
+    'for arg in "$@"; do',
+    '  src="$dest"',
+    '  dest="$arg"',
+    'done',
+    'case "$dest" in',
+    '  local-shell:*) dest=${dest#local-shell:} ;;',
+    '  *:*) dest=${dest#*:} ;;',
+    'esac',
+    'mkdir -p "$dest"',
+    'src=${src%/}',
+    'if [ -d "$src" ]; then',
+    '  (cd "$src" && find . -mindepth 1 ! -path "./.git" ! -path "./.git/*" -print) | while IFS= read -r item; do',
+    '    if [ -d "$src/$item" ]; then',
+    '      mkdir -p "$dest/$item"',
+    '    elif [ -f "$src/$item" ]; then',
+    '      mkdir -p "$dest/$(dirname "$item")"',
+    '      cp "$src/$item" "$dest/$item"',
+    '    fi',
+    '  done',
+    'else',
+    '  cp "$src" "$dest/"',
+    'fi',
+    '',
+  ].join('\n'));
+  fs.chmodSync(path.join(binDir, 'rsync'), 0o755);
+}
+
 function runCli(cwd, args) {
   const stdout = execFileSync('node', [CLI, ...args], { cwd, encoding: 'utf8' });
   return JSON.parse(stdout);
@@ -196,6 +229,76 @@ function testWorkspaceStatusShowsMissingAndSource() {
   const text = runCliText(newRoot, ['ws', 'status', '--root', newRoot, '--set', 'feat-a', '--text']);
   assert.match(text, /Worktrees: 0\/1 present, 0 dirty, 1 missing/);
   assert.match(text, /source: .*present/);
+}
+
+function testRepoStatusTracksUpstreamBehindAndPlansUpdates() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-repo-status-'));
+  const repo = path.join(root, 'repo-a');
+  const remote = path.join(root, 'repo-a-origin.git');
+
+  fs.mkdirSync(repo, { recursive: true });
+  execFileSync('git', ['init'], { cwd: repo, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: repo });
+  execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: repo });
+  execFileSync('git', ['checkout', '-b', 'main'], { cwd: repo, stdio: ['ignore', 'ignore', 'ignore'] });
+  writeFile(path.join(repo, 'README.md'), '# repo\n');
+  execFileSync('git', ['add', '.'], { cwd: repo });
+  execFileSync('git', ['commit', '-m', 'base'], { cwd: repo, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['init', '--bare', remote], { stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['remote', 'add', 'origin', remote], { cwd: repo });
+  execFileSync('git', ['push', '-u', 'origin', 'main'], { cwd: repo, stdio: ['ignore', 'ignore', 'ignore'] });
+
+  const second = execFileSync('git', [
+    'commit-tree',
+    'HEAD^{tree}',
+    '-p',
+    'HEAD',
+    '-m',
+    'remote ahead',
+  ], { cwd: repo, encoding: 'utf8' }).trim();
+  execFileSync('git', ['update-ref', 'refs/remotes/origin/main', second], { cwd: repo });
+
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'repos:',
+    '  repo-a:',
+    `    remote: ${remote}`,
+    `    upstream: ${remote}`,
+    'worktrees:',
+    '  repo_a__main:',
+    '    repo: repo-a',
+    '    path: repo-a',
+    '    branch: main',
+    '    base_ref: origin/main',
+    'tracks:',
+    '  track-a:',
+    '    worktrees: ["repo_a__main"]',
+    'env_profiles:',
+    '  local:',
+    '    type: local',
+    'defaults:',
+    '  track: track-a',
+    '  env: local',
+    '  sync: local',
+  ].join('\n') + '\n');
+
+  const status = runCli(root, ['repo', 'status', '--root', root, '--set', 'track-a']);
+  assert.strictEqual(status.action, 'repo_status');
+  assert.strictEqual(status.totals.repos, 1);
+  assert.strictEqual(status.totals.behind_upstream, 1);
+  assert.strictEqual(status.repos[0].worktrees[0].upstream_ref, 'origin/main');
+  assert.strictEqual(status.repos[0].worktrees[0].commits_behind_upstream, 1);
+
+  const plan = runCli(root, ['repo', 'update-plan', '--root', root, '--set', 'track-a']);
+  assert.strictEqual(plan.action, 'repo_update_plan');
+  assert.strictEqual(plan.totals.update, 1);
+  assert.strictEqual(plan.entries[0].action, 'fast_forward_or_rebase');
+  assert.match(plan.entries[0].commands[1], /rebase "origin\/main"/);
+
+  const text = runCliText(root, ['repo', 'status', '--root', root, '--set', 'track-a', '--text']);
+  assert.match(text, /Repos: 1, worktrees: 1\/1 present, 0 dirty, 1 behind/);
+  assert.match(text, /upstream ref: origin\/main/);
 }
 
 function testWorkspaceStatusSurfacesPublishPlan() {
@@ -625,6 +728,79 @@ function testFeatureReusesTrackEnvAndValidationProfiles() {
   assert.strictEqual(presenceTrackB.track.runtime.presence_count, 0);
   const presenceTrackA = runCli(root, ['track', 'status', '--root', root, '--set', 'base-track', '--feat', 'feat-a']);
   assert.strictEqual(presenceTrackA.track.runtime.presence_count, 1);
+}
+
+function testTrackBindWritesFeatureSelectionBinding() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-track-bind-feature-'));
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees:',
+    '  repo_a__base:',
+    '    repo: repo-a',
+    '    path: repos/repo-a-base',
+    '  repo_a__feat:',
+    '    repo: repo-a',
+    '    path: repos/repo-a-feat',
+    'tracks:',
+    '  base-track:',
+    '    worktrees: ["repo_a__base"]',
+    '    features:',
+    '      feat-a:',
+    '        aliases: [a]',
+    '        worktrees: ["repo_a__feat"]',
+    'env_profiles:',
+    '  local:',
+    '    type: local',
+    'defaults:',
+    '  track: base-track',
+    '  env: local',
+    '',
+  ].join('\n'));
+
+  const before = fs.readFileSync(path.join(root, '.devteam', 'config.yaml'), 'utf8');
+  const result = runCli(root, ['track', 'bind', 'base-track', '--feat', 'a', '--root', root, '--write', '--scope', 'codex-a']);
+  assert.strictEqual(result.wrote_binding, true);
+  assert.strictEqual(result.track, 'base-track');
+  assert.strictEqual(result.feat, 'feat-a');
+  assert.strictEqual(result.exports.DEVTEAM_FEAT, 'feat-a');
+  assert.ok(result.binding.shell_path.endsWith('/.devteam/state/selection-codex-a.sh'));
+  const shell = fs.readFileSync(result.binding.shell_path, 'utf8');
+  assert.match(shell, /export DEVTEAM_TRACK='base-track'/);
+  assert.match(shell, /export DEVTEAM_FEAT='feat-a'/);
+  const after = fs.readFileSync(path.join(root, '.devteam', 'config.yaml'), 'utf8');
+  assert.strictEqual(after, before);
+
+  const status = runCli(root, ['status', '--root', root, '--json']);
+  assert.strictEqual(status.selection_binding.exists, false);
+  const scopedStatus = runCli(root, ['status', '--root', root, '--json', '--scope', 'codex-a']);
+  assert.strictEqual(scopedStatus.selection_binding.exists, true);
+  assert.strictEqual(scopedStatus.selection_binding.track, 'base-track');
+  assert.strictEqual(scopedStatus.selection_binding.feat, 'feat-a');
+  const scopedContext = runCli(root, ['workspace', 'context', '--root', root, '--for', 'codex', '--scope', 'codex-a']);
+  assert.strictEqual(scopedContext.selected_source, 'binding:codex-a');
+  assert.strictEqual(scopedContext.selected_feat, 'feat-a');
+
+  const sessionBind = runCli(root, ['track', 'bind', 'base-track', '--feat', 'a', '--root', root, '--write']);
+  const context = runCli(root, ['workspace', 'context', '--root', root, '--for', 'codex']);
+  assert.strictEqual(context.selected_track, 'base-track');
+  assert.strictEqual(context.selected_source, 'binding:session');
+  assert.strictEqual(context.selected_feat, 'feat-a');
+  assert.strictEqual(context.selection_binding.track, 'base-track');
+  assert.strictEqual(context.selection_binding.feat, 'feat-a');
+  assert.strictEqual(context.runtime.profile, 'local');
+  assert.ok(context.recommended_commands.selection_bind.includes('track bind "base-track"'));
+  assert.ok(context.recommended_commands.runtime_bind.includes('env bind'));
+  const contextText = runCliText(root, ['workspace', 'context', '--root', root, '--for', 'codex', '--text']);
+  assert.match(contextText, /selected_track: base-track \(binding:session\)/);
+  assert.match(contextText, /selection_binding: \. '.*selection-session\.sh'/);
+  assert.match(contextText, /Runtime binding:/);
+  assert.match(contextText, /binding: none/);
+
+  const explicitContext = runCli(root, ['workspace', 'context', '--root', root, '--for', 'codex', '--set', 'base-track']);
+  assert.strictEqual(explicitContext.selected_source, 'explicit');
+  assert.strictEqual(explicitContext.selected_feat, null);
+  assert.strictEqual(explicitContext.selection_binding.source, sessionBind.binding.source);
 }
 
 function testWorkspaceStatusIncludesDirtyFileSummary() {
@@ -1201,6 +1377,93 @@ function testSessionStatusSummarizesEvidenceAndPublishPlan() {
   assert.strictEqual(topLevelStatus.phase.name, 'publish-local-branches');
 }
 
+function testHarnessStatusAggregatesWorkspaceRepoEnvAndSession() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-harness-status-'));
+  const repo = path.join(root, 'repo-a');
+  fs.mkdirSync(repo, { recursive: true });
+  execFileSync('git', ['init'], { cwd: repo, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: repo });
+  execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: repo });
+  execFileSync('git', ['checkout', '-b', 'track-a'], { cwd: repo, stdio: ['ignore', 'ignore', 'ignore'] });
+  writeFile(path.join(repo, 'README.md'), '# repo\n');
+  execFileSync('git', ['add', '.'], { cwd: repo });
+  execFileSync('git', ['commit', '-m', 'base'], { cwd: repo, stdio: ['ignore', 'ignore', 'ignore'] });
+  writeFile(path.join(repo, 'dirty.txt'), 'dirty\n');
+
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'repos:',
+    '  repo-a:',
+    '    remote: https://example.com/repo-a.git',
+    '    upstream: https://example.com/repo-a-upstream.git',
+    'worktrees:',
+    '  repo_a__track:',
+    '    repo: repo-a',
+    '    path: repo-a',
+    '    branch: track-a',
+    '    base_ref: origin/main',
+    '    sync:',
+    '      profile: remote-a',
+    '      remote_path: /remote/repo-a',
+    'tracks:',
+    '  track-a:',
+    '    worktrees: ["repo_a__track"]',
+    '    env: remote-a',
+    '    sync: remote-a',
+    'env_profiles:',
+    '  remote-a:',
+    '    type: remote_dev',
+    '    environment: remote-host',
+    '    ssh: "ssh root@example.com"',
+    '    host: example.com',
+    '    work_dir: /remote',
+    '    proxy:',
+    '      http_proxy: http://127.0.0.1:1081',
+    'environments:',
+    '  remote-host:',
+    '    kind: ssh_host',
+    '    status: ready',
+    'defaults:',
+    '  track: track-a',
+    '  env: remote-a',
+    '  sync: remote-a',
+  ].join('\n') + '\n');
+
+  const session = runCli(root, [
+    'session', 'start',
+    '--root', root,
+    '--set', 'track-a',
+    '--sync', 'remote-a',
+    '--env', 'remote-a',
+    '--no-build',
+    '--no-deploy',
+    '--id', 'harness-run',
+  ]);
+  assert.strictEqual(session.run_id, 'harness-run');
+
+  const status = runCli(root, ['status', '--root', root, '--set', 'track-a', '--json']);
+  assert.strictEqual(status.action, 'harness_status');
+  assert.strictEqual(status.workspace_set, 'track-a');
+  assert.strictEqual(status.worktrees.totals.dirty, 1);
+  assert.strictEqual(status.repos.totals.upstream_unknown, 1);
+  assert.strictEqual(status.environment.profile, 'remote-a');
+  assert.strictEqual(status.environment.proxy_configured, true);
+  assert.ok(status.runtime.env_keys.includes('HTTP_PROXY'));
+  assert.strictEqual(status.recent_runs.latest.run_id, 'harness-run');
+  assert.ok(status.next_actions.some(action => action.includes('repo status')));
+  assert.ok(status.next_actions.some(action => action.includes('ws status')));
+
+  const text = runCliText(root, ['status', '--root', root, '--set', 'track-a']);
+  assert.match(text, /Devteam Harness/);
+  assert.match(text, /Repos: 1 configured, 0 behind, 1 upstream unknown/);
+  assert.match(text, /Environment: remote-a \(remote_dev\).*proxy=yes/);
+
+  const sessionShortcut = runCli(root, ['status', '--root', root, '--run', 'harness-run', '--json']);
+  assert.strictEqual(sessionShortcut.action, 'session_status');
+  assert.strictEqual(sessionShortcut.run_id, 'harness-run');
+}
+
 function testSessionStatusMarksEvidenceStaleWhenWorktreeHeadChanges() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-workspace-stale-head-'));
   const repo = path.join(root, 'repo-a-feature');
@@ -1394,14 +1657,15 @@ function testSessionListSummarizesRunHistoryAndFiltersByTrack() {
   assert.deepStrictEqual(withBroken.unreadable.map(item => item.run_id).sort(), ['broken', 'orphan']);
 
   const latest = runCli(root, ['status', '--root', root, '--json']);
-  assert.strictEqual(latest.run_id, 'run-a');
+  assert.strictEqual(latest.action, 'harness_status');
+  assert.strictEqual(latest.recent_runs.latest.run_id, 'run-a');
   assert.strictEqual(latest.workspace_set, 'track-a');
 
-  const latestForTrackB = runCli(root, ['status', '--root', root, '--set', 'track-b', '--json']);
+  const latestForTrackB = runCli(root, ['status', '--root', root, '--set', 'track-b', '--session', '--json']);
   assert.strictEqual(latestForTrackB.run_id, 'run-b');
   assert.strictEqual(latestForTrackB.workspace_set, 'track-b');
 
-  const latestForTrackA = runCli(root, ['status', '--root', root, '--set', 'track-a', '--json']);
+  const latestForTrackA = runCli(root, ['status', '--root', root, '--set', 'track-a', '--session', '--json']);
   assert.strictEqual(latestForTrackA.run_id, 'run-a');
   assert.strictEqual(latestForTrackA.workspace_set, 'track-a');
 
@@ -1570,7 +1834,8 @@ function testSessionLifecycleCanCloseStaleRunsOutOfActiveHistory() {
   assert.strictEqual(allLint.totals.warnings, 1);
 
   const latest = runCli(root, ['status', '--root', root, '--json']);
-  assert.strictEqual(latest.run_id, 'new-run');
+  assert.strictEqual(latest.action, 'harness_status');
+  assert.strictEqual(latest.recent_runs.latest.run_id, 'new-run');
 
   const blockedRecord = runCliFailure(root, [
     'session', 'record',
@@ -1955,7 +2220,39 @@ function testTrackListStatusAndUseUpdatesDefaults() {
   assert.strictEqual(bind.action, 'track_bind');
   assert.strictEqual(bind.track, 'v0201');
   assert.match(bind.command, /export DEVTEAM_TRACK="v0201"/);
+  assert.strictEqual(bind.wrote_binding, false);
   assert.strictEqual(bind.next_action.includes('does not modify'), true);
+
+  const binding = runCli(root, ['track', 'bind', 'v0201', '--root', root, '--write']);
+  assert.strictEqual(binding.action, 'track_bind');
+  assert.strictEqual(binding.wrote_binding, true);
+  assert.ok(binding.binding.shell_path.endsWith('/.devteam/state/selection-session.sh'));
+  assert.ok(fs.existsSync(binding.binding.shell_path));
+  assert.ok(fs.existsSync(binding.binding.json_path));
+  assert.match(binding.binding.source, /\. '.*selection-session\.sh'/);
+  const bindingShell = fs.readFileSync(binding.binding.shell_path, 'utf8');
+  assert.match(bindingShell, /export DEVTEAM_TRACK='v0201'/);
+  assert.match(bindingShell, /unset DEVTEAM_FEAT/);
+  const bindingJson = JSON.parse(fs.readFileSync(binding.binding.json_path, 'utf8'));
+  assert.strictEqual(bindingJson.track, 'v0201');
+  assert.strictEqual(bindingJson.feat, null);
+  const harnessWithBinding = runCli(root, ['status', '--root', root, '--json']);
+  assert.strictEqual(harnessWithBinding.selection_binding.exists, true);
+  assert.strictEqual(harnessWithBinding.selection_binding.track, 'v0201');
+  assert.strictEqual(harnessWithBinding.workspace_set, 'v0201');
+  assert.strictEqual(harnessWithBinding.workspace_set_source, 'binding:session');
+  assert.strictEqual(harnessWithBinding.environment.profile, 'remote-test-v0201');
+  assert.deepStrictEqual(harnessWithBinding.worktrees.entries.map(item => item.id), ['repo_a__v0201']);
+  assert.ok(harnessWithBinding.next_actions.includes(binding.binding.source));
+  const explicitHarness = runCli(root, ['status', '--root', root, '--json', '--set', 'old']);
+  assert.strictEqual(explicitHarness.workspace_set, 'old');
+  assert.strictEqual(explicitHarness.workspace_set_source, 'explicit');
+  assert.strictEqual(explicitHarness.environment.profile, 'remote-test-old');
+  const envHarness = runCliWithEnv(root, ['status', '--root', root, '--json'], {
+    DEVTEAM_TRACK: 'old',
+  });
+  assert.strictEqual(envHarness.workspace_set, 'old');
+  assert.strictEqual(envHarness.workspace_set_source, 'env');
 
   const dryRun = runCli(root, ['track', 'use', 'v0201', '--root', root, '--dry-run']);
   assert.strictEqual(dryRun.dry_run, true);
@@ -2072,7 +2369,9 @@ function testRemoteLoopStartDoctorSyncRecordAndStatus() {
   assert.strictEqual(sync.action, 'remote_loop_sync_plan');
   assert.strictEqual(sync.execute, false);
   assert.strictEqual(sync.patch_mode, 'dirty-only');
-  assert.strictEqual(sync.plan.totals.syncable, 0);
+  assert.strictEqual(sync.plan.totals.syncable, 1);
+  assert.strictEqual(sync.plan.entries[0].git_bind, true);
+  assert.strictEqual(sync.plan.entries[0].patch_file_count, 0);
 
   writeFile(path.join(repo, 'dirty.txt'), 'dirty\n');
   const dirtySync = runCli(root, [
@@ -2386,7 +2685,7 @@ function testSessionLocalTrackEnvKeepsWorkspaceDefaultUntouched() {
   assert.strictEqual(startFromEnv.profiles.env, 'remote-test-track-b');
   assert.strictEqual(startFromEnv.profiles.sync, 'remote-test-track-b');
 
-  const latestForEnv = runCliWithEnv(root, ['status', '--root', root, '--json'], {
+  const latestForEnv = runCliWithEnv(root, ['status', '--root', root, '--session', '--json'], {
     DEVTEAM_TRACK: 'track-b',
   });
   assert.strictEqual(latestForEnv.run_id, 'track-b-run');
@@ -3079,12 +3378,24 @@ function testRemoteLoopRecordTestBlocksCrossTrackRun() {
 
 function testMaterializePlansLocalCloneFromSourcePath() {
   const newRoot = createStandardWorkspace();
+  const source = path.join(newRoot, 'repo-a-source');
+  initGitRepo(source);
 
   const plan = runCli(newRoot, ['ws', 'materialize', '--root', newRoot, '--set', 'feat-a']);
   assert.strictEqual(plan.applied, false);
   assert.strictEqual(plan.totals.clone, 1);
   assert.match(plan.entries[0].command, /git clone --no-hardlinks/);
   assert.match(plan.entries[0].command, /repo-a-dev/);
+  assert.deepStrictEqual(plan.entries[0].remotes.map(item => item.remote), ['origin']);
+  assert.strictEqual(plan.entries[0].remotes[0].url, 'https://example.com/repo-a.git');
+
+  const applied = runCli(newRoot, ['ws', 'materialize', '--root', newRoot, '--set', 'feat-a', '--apply']);
+  assert.strictEqual(applied.applied, true);
+  assert.strictEqual(applied.entries[0].action, 'cloned');
+  assert.strictEqual(
+    execFileSync('git', ['-C', path.join(newRoot, 'repo-a-dev'), 'remote', 'get-url', 'origin'], { encoding: 'utf8' }).trim(),
+    'https://example.com/repo-a.git',
+  );
 }
 
 function testSyncPlanBecomesSyncableWhenWorktreeExists() {
@@ -3186,8 +3497,46 @@ function testSyncPatchModesSeparateBranchPatchFromDirtyOnly() {
     '--dirty-only',
   ]);
   assert.strictEqual(cleanDirtyOnly.entries[0].patch_mode, 'dirty-only');
-  assert.strictEqual(cleanDirtyOnly.entries[0].action, 'noop');
+  assert.strictEqual(cleanDirtyOnly.entries[0].action, 'sync');
+  assert.strictEqual(cleanDirtyOnly.entries[0].git_bind, true);
   assert.strictEqual(cleanDirtyOnly.entries[0].patch_file_count, 0);
+
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees:',
+    '  repo_a__feature:',
+    '    repo: repo-a',
+    '    path: repo-a-feature',
+    '    branch: feature',
+    '    base_ref: HEAD~1',
+    '    sync:',
+    '      profile: remote-test-feature',
+    '      remote_path: /tmp/remote/repo-a-feature',
+    '      strategy: rsync-relative-patch-files',
+    '      git_bind: false',
+    'tracks:',
+    '  feature-a:',
+    '    worktrees: ["repo_a__feature"]',
+    'env_profiles:',
+    '  remote-test-feature:',
+    '    type: remote_dev',
+    '    ssh: "sh -c"',
+    '    host: local-shell',
+    'defaults:',
+    '  track: feature-a',
+    '  env: remote-test-feature',
+    '  sync: remote-test-feature',
+  ].join('\n') + '\n');
+  const cleanDirtyOnlyNoGitBind = runCli(root, [
+    'sync', 'plan',
+    '--root', root,
+    '--set', 'feature-a',
+    '--profile', 'remote-test-feature',
+    '--dirty-only',
+  ]);
+  assert.strictEqual(cleanDirtyOnlyNoGitBind.entries[0].action, 'noop');
+  assert.strictEqual(cleanDirtyOnlyNoGitBind.entries[0].git_bind, false);
 
   writeFile(path.join(repo, 'dirty.txt'), 'dirty\n');
   const dirtyOnly = runCli(root, [
@@ -3200,6 +3549,357 @@ function testSyncPatchModesSeparateBranchPatchFromDirtyOnly() {
   assert.strictEqual(dirtyOnly.entries[0].patch_mode, 'dirty-only');
   assert.strictEqual(dirtyOnly.entries[0].action, 'sync');
   assert.deepStrictEqual(dirtyOnly.entries[0].patch_files, ['dirty.txt']);
+}
+
+function testSyncApplyBlocksDirtyRemoteSourceByDefault() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-sync-remote-guard-'));
+  const local = path.join(root, 'repo-a-feature');
+  const remote = path.join(root, 'remote', 'repo-a-feature');
+  const fakeBin = path.join(root, 'bin');
+  writeFakeLocalRsync(fakeBin);
+  writeFile(path.join(local, 'README.md'), '# repo\n');
+  execFileSync('git', ['init'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['checkout', '-b', 'feature'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: local });
+  execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: local });
+  execFileSync('git', ['add', '.'], { cwd: local });
+  execFileSync('git', ['commit', '-m', 'init'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['clone', local, remote], { stdio: ['ignore', 'ignore', 'ignore'] });
+  writeFile(path.join(remote, 'dirty.txt'), 'remote dirty\n');
+  writeFile(path.join(local, 'local.txt'), 'local\n');
+
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees:',
+    '  repo_a__feature:',
+    '    repo: repo-a',
+    '    path: repo-a-feature',
+    '    branch: feature',
+    '    sync:',
+    '      profile: remote-test-feature',
+    `      remote_path: "${remote}"`,
+    '      strategy: rsync-relative-patch-files',
+    'tracks:',
+    '  feature-a:',
+    '    worktrees: ["repo_a__feature"]',
+    'env_profiles:',
+    '  remote-test-feature:',
+    '    type: remote_dev',
+    '    ssh: "sh -c"',
+    '    host: "local-shell"',
+    `    source_dir: "${remote}"`,
+    'defaults:',
+    '  track: feature-a',
+    '  env: remote-test-feature',
+    '  sync: remote-test-feature',
+  ].join('\n') + '\n');
+
+  const blocked = runCli(root, [
+    'sync', 'apply',
+    '--root', root,
+    '--set', 'feature-a',
+    '--profile', 'remote-test-feature',
+    '--dirty-only',
+    '--yes',
+  ]);
+  assert.strictEqual(blocked.status, 'blocked');
+  assert.strictEqual(blocked.reason, 'remote_source_drift');
+  assert.strictEqual(blocked.remote_guard.status, 'drift');
+  assert.ok(blocked.remote_guard.blocking[0].problems.includes('remote_dirty'));
+
+  const allowed = runCliWithEnv(root, [
+    'sync', 'apply',
+    '--root', root,
+    '--set', 'feature-a',
+    '--profile', 'remote-test-feature',
+    '--dirty-only',
+    '--yes',
+    '--allow-remote-drift',
+  ], { PATH: `${fakeBin}:${process.env.PATH}` });
+  assert.strictEqual(allowed.status, 'applied');
+  assert.strictEqual(allowed.totals.synced, 1);
+}
+
+function testSyncApplyBindsRemoteGitHeadToLocalHead() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-sync-git-bind-'));
+  const local = path.join(root, 'repo-a-feature');
+  const remote = path.join(root, 'remote', 'repo-a-feature');
+  const fakeBin = path.join(root, 'bin');
+  writeFakeLocalRsync(fakeBin);
+  writeFile(path.join(local, 'README.md'), '# repo\n');
+  execFileSync('git', ['init'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['checkout', '-b', 'feature'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: local });
+  execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: local });
+  execFileSync('git', ['add', '.'], { cwd: local });
+  execFileSync('git', ['commit', '-m', 'init'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['clone', local, remote], { stdio: ['ignore', 'ignore', 'ignore'] });
+  writeFile(path.join(local, 'feature.txt'), 'feature\n');
+  execFileSync('git', ['add', '.'], { cwd: local });
+  execFileSync('git', ['commit', '-m', 'feature'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  const localHead = execFileSync('git', ['-C', local, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const remoteHeadBefore = execFileSync('git', ['-C', remote, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  assert.notStrictEqual(remoteHeadBefore, localHead);
+  writeFile(path.join(local, 'README.md'), '# repo\n\nlocal dirty\n');
+
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees:',
+    '  repo_a__feature:',
+    '    repo: repo-a',
+    '    path: repo-a-feature',
+    '    branch: feature',
+    '    sync:',
+    '      profile: remote-test-feature',
+    `      remote_path: "${remote}"`,
+    'tracks:',
+    '  feature-a:',
+    '    worktrees: ["repo_a__feature"]',
+    'env_profiles:',
+    '  remote-test-feature:',
+    '    type: remote_dev',
+    '    ssh: "sh -c"',
+    '    host: "local-shell"',
+    `    source_dir: "${remote}"`,
+    'defaults:',
+    '  track: feature-a',
+    '  env: remote-test-feature',
+    '  sync: remote-test-feature',
+  ].join('\n') + '\n');
+
+  const plan = runCli(root, ['sync', 'plan', '--root', root, '--set', 'feature-a', '--profile', 'remote-test-feature']);
+  assert.strictEqual(plan.entries[0].git_bind, true);
+  assert.match(plan.entries[0].git_command, /git .*bundle create/);
+
+  const applied = runCliWithEnv(root, [
+    'sync', 'apply',
+    '--root', root,
+    '--set', 'feature-a',
+    '--profile', 'remote-test-feature',
+    '--yes',
+  ], { PATH: `${fakeBin}:${process.env.PATH}` });
+  assert.strictEqual(applied.status, 'applied');
+  assert.strictEqual(applied.results[0].git_bind, true);
+  assert.strictEqual(applied.results[0].git_result.status, 'passed');
+  assert.strictEqual(applied.results[0].sync_result.status, 'passed');
+  assert.strictEqual(execFileSync('git', ['-C', remote, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), localHead);
+  assert.strictEqual(fs.readFileSync(path.join(remote, 'README.md'), 'utf8'), '# repo\n\nlocal dirty\n');
+  const remoteStatus = execFileSync('git', ['-C', remote, 'status', '--porcelain'], { encoding: 'utf8' }).trim();
+  assert.match(remoteStatus, /M README\.md/);
+  assert.match(remoteStatus, /\?\? \.devteam-sync-binding\.json/);
+  const binding = JSON.parse(fs.readFileSync(path.join(remote, '.devteam-sync-binding.json'), 'utf8'));
+  assert.strictEqual(binding.source_head, localHead);
+  assert.strictEqual(binding.source_dirty, true);
+  assert.ok(binding.source_dirty_signature);
+}
+
+function testSyncApplyInitializesMissingRemoteGitMirror() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-sync-git-init-'));
+  const local = path.join(root, 'repo-a-feature');
+  const remote = path.join(root, 'remote', 'repo-a-feature');
+  const fakeBin = path.join(root, 'bin');
+  writeFakeLocalRsync(fakeBin);
+  writeFile(path.join(local, 'README.md'), '# repo\n');
+  execFileSync('git', ['init'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['checkout', '-b', 'feature'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: local });
+  execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: local });
+  execFileSync('git', ['add', '.'], { cwd: local });
+  execFileSync('git', ['commit', '-m', 'init'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  const localHead = execFileSync('git', ['-C', local, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees:',
+    '  repo_a__feature:',
+    '    repo: repo-a',
+    '    path: repo-a-feature',
+    '    branch: feature',
+    '    sync:',
+    '      profile: remote-test-feature',
+    `      remote_path: "${remote}"`,
+    'tracks:',
+    '  feature-a:',
+    '    worktrees: ["repo_a__feature"]',
+    'env_profiles:',
+    '  remote-test-feature:',
+    '    type: remote_dev',
+    '    ssh: "sh -c"',
+    '    host: "local-shell"',
+    `    source_dir: "${remote}"`,
+    'defaults:',
+    '  track: feature-a',
+    '  env: remote-test-feature',
+    '  sync: remote-test-feature',
+  ].join('\n') + '\n');
+
+  const applied = runCliWithEnv(root, [
+    'sync', 'apply',
+    '--root', root,
+    '--set', 'feature-a',
+    '--profile', 'remote-test-feature',
+    '--yes',
+  ], { PATH: `${fakeBin}:${process.env.PATH}` });
+  assert.strictEqual(applied.status, 'applied');
+  assert.strictEqual(applied.results[0].git_result.status, 'passed');
+  assert.strictEqual(execFileSync('git', ['-C', remote, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), localHead);
+  assert.strictEqual(fs.readFileSync(path.join(remote, 'README.md'), 'utf8'), '# repo\n');
+  assert.ok(fs.existsSync(path.join(remote, '.devteam-sync-binding.json')));
+}
+
+function testEnvRefreshBlocksUnboundRemoteSourceDrift() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-env-refresh-guard-'));
+  const local = path.join(root, 'worktrees', 'feature', 'vllm-int');
+  const remote = path.join(root, 'remote', 'vllm-int');
+  const venv = path.join(root, 'venvs', 'vllm-track');
+  const python = path.join(venv, 'bin', 'python');
+
+  writeFile(path.join(local, 'README.md'), '# repo\n');
+  execFileSync('git', ['init'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['checkout', '-b', 'feature'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: local });
+  execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: local });
+  execFileSync('git', ['add', '.'], { cwd: local });
+  execFileSync('git', ['commit', '-m', 'init'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['clone', local, remote], { stdio: ['ignore', 'ignore', 'ignore'] });
+  writeFile(path.join(remote, 'remote-dirty.txt'), 'remote dirty\n');
+  writeFile(python, '#!/bin/sh\necho should-not-run\n');
+  fs.chmodSync(python, 0o755);
+
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees:',
+    '  vllm__feature:',
+    '    repo: vllm-int',
+    '    path: worktrees/feature/vllm-int',
+    '    branch: feature',
+    '    sync:',
+    '      profile: remote-vllm',
+    `      remote_path: "${remote}"`,
+    'tracks:',
+    '  feature-a:',
+    '    worktrees: ["vllm__feature"]',
+    '    env: remote-vllm',
+    '    sync: remote-vllm',
+    'env_profiles:',
+    '  remote-vllm:',
+    '    type: remote_dev',
+    '    ssh: "sh -c"',
+    '    host: "local-shell"',
+    `    source_dir: "${remote}"`,
+    `    venv: "${venv}"`,
+    `    python: "${python}"`,
+    '    install_mode: editable-precompiled',
+    'defaults:',
+    '  track: feature-a',
+    '  env: remote-vllm',
+    '  sync: remote-vllm',
+  ].join('\n') + '\n');
+
+  const refresh = runCli(root, [
+    'env', 'refresh',
+    '--root', root,
+    '--set', 'feature-a',
+    '--profile', 'remote-vllm',
+    '--yes',
+  ]);
+  assert.strictEqual(refresh.status, 'blocked');
+  assert.strictEqual(refresh.reason, 'remote_source_drift');
+  assert.ok(refresh.remote_guard.blocking[0].problems.includes('remote_dirty'));
+}
+
+function testEnvRefreshBlocksUnboundVenvUnlessExplicitlyAllowed() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-env-refresh-venv-binding-'));
+  const local = path.join(root, 'worktrees', 'feature', 'vllm-int');
+  const remote = path.join(root, 'remote', 'vllm-int');
+  const venv = path.join(root, 'venvs', 'vllm-track');
+  const python = path.join(venv, 'bin', 'python');
+  const uv = path.join(root, 'bin', 'uv');
+
+  writeFile(path.join(local, 'README.md'), '# repo\n');
+  fs.mkdirSync(path.join(local, 'vllm'), { recursive: true });
+  writeFile(path.join(local, 'vllm', '__init__.py'), '');
+  execFileSync('git', ['init'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['checkout', '-b', 'feature'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: local });
+  execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: local });
+  execFileSync('git', ['add', '.'], { cwd: local });
+  execFileSync('git', ['commit', '-m', 'init'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['clone', local, remote], { stdio: ['ignore', 'ignore', 'ignore'] });
+  const head = execFileSync('git', ['-C', local, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  writeFile(path.join(remote, '.devteam-sync-binding.json'), JSON.stringify({
+    track: 'feature-a',
+    feat: null,
+    profile: 'remote-vllm',
+    worktree_id: 'vllm__feature',
+    repo: 'vllm-int',
+    local_path: local,
+    remote_path: remote,
+    branch: 'feature',
+    source_head: head,
+  }));
+  writeFile(python, [
+    '#!/bin/sh',
+    'echo "vllm_version 0.0.0+fake.precompiled"',
+  ].join('\n') + '\n');
+  fs.chmodSync(python, 0o755);
+  writeFile(uv, '#!/bin/sh\nexit 0\n');
+  fs.chmodSync(uv, 0o755);
+
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees:',
+    '  vllm__feature:',
+    '    repo: vllm-int',
+    '    path: worktrees/feature/vllm-int',
+    '    branch: feature',
+    '    sync:',
+    '      profile: remote-vllm',
+    `      remote_path: "${remote}"`,
+    'tracks:',
+    '  feature-a:',
+    '    worktrees: ["vllm__feature"]',
+    '    env: remote-vllm',
+    '    sync: remote-vllm',
+    'env_profiles:',
+    '  remote-vllm:',
+    '    type: remote_dev',
+    '    ssh: "sh -c"',
+    '    host: "local-shell"',
+    `    source_dir: "${remote}"`,
+    `    venv: "${venv}"`,
+    `    python: "${python}"`,
+    `    uv: "${uv}"`,
+    '    install_mode: editable-precompiled',
+    'defaults:',
+    '  track: feature-a',
+    '  env: remote-vllm',
+    '  sync: remote-vllm',
+  ].join('\n') + '\n');
+
+  const blocked = runCli(root, [
+    'env', 'refresh',
+    '--root', root,
+    '--set', 'feature-a',
+    '--profile', 'remote-vllm',
+    '--yes',
+  ]);
+  assert.strictEqual(blocked.status, 'blocked');
+  assert.ok(blocked.remote_guard.blocking[0].problems.includes('venv_binding_missing'));
+
+  const planned = runCli(root, [
+    'env', 'refresh',
+    '--root', root,
+    '--set', 'feature-a',
+    '--profile', 'remote-vllm',
+  ]);
+  assert.strictEqual(planned.status, 'planned');
+  assert.doesNotMatch(planned.command, /devteam-venv-binding\.json/);
 }
 
 function testDoctorAggregatesWorkspaceChecks() {
@@ -3264,6 +3964,119 @@ function testDoctorScopesWorkspaceChecksToFeature() {
   assert.strictEqual(featureDoctor.workspace_status.missing, 0);
   assert.strictEqual(featureDoctor.sync.syncable, 1);
   assert.strictEqual(featureDoctor.history.totals.errors, 0);
+}
+
+function testDoctorFlagsSharedRemoteSourceAndVenvBindings() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-doctor-shared-remote-'));
+  const featureA = path.join(root, 'worktrees', 'a', 'repo-a');
+  const featureB = path.join(root, 'worktrees', 'b', 'repo-a');
+  fs.mkdirSync(featureA, { recursive: true });
+  fs.mkdirSync(featureB, { recursive: true });
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees:',
+    '  repo_a__feat_a:',
+    '    repo: repo-a',
+    '    path: worktrees/a/repo-a',
+    '    sync:',
+    '      profile: remote-feature-a',
+    '      remote_path: /remote/shared/repo-a',
+    '  repo_a__feat_b:',
+    '    repo: repo-a',
+    '    path: worktrees/b/repo-a',
+    '    sync:',
+    '      profile: remote-feature-b',
+    '      remote_path: /remote/shared/repo-a',
+    'tracks:',
+    '  base-track:',
+    '    worktrees: []',
+    '    features:',
+    '      feat-a:',
+    '        worktrees: ["repo_a__feat_a"]',
+    '        env: remote-feature-a',
+    '        sync: remote-feature-a',
+    '      feat-b:',
+    '        worktrees: ["repo_a__feat_b"]',
+    '        env: remote-feature-b',
+    '        sync: remote-feature-b',
+    'env_profiles:',
+    '  remote-feature-a:',
+    '    type: remote_dev',
+    '    ssh: "sh -c"',
+    '    host: "local-shell"',
+    '    source_dir: "/remote/shared/repo-a"',
+    '    venv: "/remote/venvs/shared"',
+    '  remote-feature-b:',
+    '    type: remote_dev',
+    '    ssh: "sh -c"',
+    '    host: "local-shell"',
+    '    source_dir: "/remote/shared/repo-a"',
+    '    venv: "/remote/venvs/shared"',
+    'defaults:',
+    '  track: base-track',
+    '  env: remote-feature-a',
+    '  sync: remote-feature-a',
+  ].join('\n') + '\n');
+
+  const doctor = runCli(root, ['doctor', '--root', root, '--set', 'base-track', '--feat', 'feat-a']);
+  assert.strictEqual(doctor.bindings.status, 'needs_attention');
+  assert.ok(doctor.problems.some(problem => /shared by worktrees/.test(problem)));
+  assert.ok(doctor.problems.some(problem => /shared by env profiles/.test(problem)));
+  assert.ok(doctor.bindings.problems.some(problem => problem.kind === 'shared_remote_source'));
+  assert.ok(doctor.bindings.problems.some(problem => problem.kind === 'shared_env_venv'));
+}
+
+function testFeatureProfilesOverrideTrackEnvAndSync() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-feature-profile-'));
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees:',
+    '  repo_a__base:',
+    '    repo: repo-a',
+    '    path: repos/repo-a',
+    '    sync:',
+    '      profile: remote-base',
+    '      remote_path: /remote/base/repo-a',
+    '  repo_a__feat_a:',
+    '    repo: repo-a',
+    '    path: worktrees/a/repo-a',
+    '    sync:',
+    '      profile: remote-feature-a',
+    '      remote_path: /remote/features/a/repo-a',
+    'tracks:',
+    '  base-track:',
+    '    worktrees: ["repo_a__base"]',
+    '    env: remote-base',
+    '    sync: remote-base',
+    '    features:',
+    '      feat-a:',
+    '        worktrees: ["repo_a__feat_a"]',
+    '        env: remote-feature-a',
+    '        sync: remote-feature-a',
+    'env_profiles:',
+    '  remote-base:',
+    '    type: local',
+    '  remote-feature-a:',
+    '    type: local',
+    'defaults:',
+    '  track: base-track',
+    '  env: remote-base',
+    '  sync: remote-base',
+  ].join('\n') + '\n');
+
+  const base = runCli(root, ['track', 'context', '--root', root, '--set', 'base-track']);
+  assert.strictEqual(base.profiles.env.name, 'remote-base');
+  assert.strictEqual(base.profiles.sync, 'remote-base');
+
+  const feature = runCli(root, ['track', 'context', '--root', root, '--set', 'base-track', '--feat', 'feat-a']);
+  assert.strictEqual(feature.profiles.env.name, 'remote-feature-a');
+  assert.strictEqual(feature.profiles.sync, 'remote-feature-a');
+
+  const sync = runCli(root, ['sync', 'plan', '--root', root, '--set', 'base-track', '--feat', 'feat-a']);
+  assert.strictEqual(sync.profile, 'remote-feature-a');
+  assert.strictEqual(sync.entries[0].remote_path, '/remote/features/a/repo-a');
 }
 
 function testImageAndDeployPlansUseConfiguredProfiles() {
@@ -4104,19 +4917,22 @@ function testSyncApplyCanAutoRecordToSessionRun() {
 
 function testEnvRefreshCanAutoRecordToSessionRun() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-env-record-'));
+  const local = path.join(root, 'worktrees', 'feat-a', 'vllm-int');
   const source = path.join(root, 'remote', 'vllm-int');
   const venv = path.join(root, 'remote', 'venvs', 'vllm-track');
   const python = path.join(venv, 'bin', 'python');
   const uv = path.join(root, 'bin', 'uv');
 
-  writeFile(path.join(source, 'README.md'), '# fake vllm\n');
-  fs.mkdirSync(path.join(source, 'vllm'), { recursive: true });
-  writeFile(path.join(source, 'vllm', '__init__.py'), '');
-  execFileSync('git', ['init'], { cwd: source, stdio: ['ignore', 'ignore', 'ignore'] });
-  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: source });
-  execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: source });
-  execFileSync('git', ['add', '.'], { cwd: source });
-  execFileSync('git', ['commit', '-m', 'init'], { cwd: source, stdio: ['ignore', 'ignore', 'ignore'] });
+  writeFile(path.join(local, 'README.md'), '# fake vllm\n');
+  fs.mkdirSync(path.join(local, 'vllm'), { recursive: true });
+  writeFile(path.join(local, 'vllm', '__init__.py'), '');
+  execFileSync('git', ['init'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['checkout', '-b', 'feat-a'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: local });
+  execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: local });
+  execFileSync('git', ['add', '.'], { cwd: local });
+  execFileSync('git', ['commit', '-m', 'init'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['clone', local, source], { stdio: ['ignore', 'ignore', 'ignore'] });
 
   writeFile(python, [
     '#!/bin/sh',
@@ -4134,10 +4950,19 @@ function testEnvRefreshCanAutoRecordToSessionRun() {
   writeFile(path.join(root, '.devteam', 'config.yaml'), [
     'version: 2',
     `workspace: ${root}`,
-    'worktrees: {}',
+    'worktrees:',
+    '  repo_a__feat:',
+    '    repo: vllm-int',
+    '    path: worktrees/feat-a/vllm-int',
+    '    branch: feat-a',
+    '    sync:',
+    '      profile: remote-vllm',
+    `      remote_path: "${source}"`,
     'tracks:',
-    '  empty:',
-    '    worktrees: []',
+    '  feat-a:',
+    '    worktrees: ["repo_a__feat"]',
+    '    env: remote-vllm',
+    '    sync: remote-vllm',
     'env_profiles:',
     '  remote-vllm:',
     '    type: remote_dev',
@@ -4149,7 +4974,7 @@ function testEnvRefreshCanAutoRecordToSessionRun() {
     `    uv: "${uv}"`,
     '    install_mode: editable-precompiled',
     'defaults:',
-    '  track: empty',
+    '  track: feat-a',
     '  env: remote-vllm',
     '  sync: remote-vllm',
   ].join('\n') + '\n');
@@ -4157,22 +4982,61 @@ function testEnvRefreshCanAutoRecordToSessionRun() {
   const session = runCli(root, [
     'session', 'start',
     '--root', root,
-    '--set', 'empty',
+    '--set', 'feat-a',
     '--sync', 'remote-vllm',
     '--env', 'remote-vllm',
     '--no-build',
     '--no-deploy',
   ]);
 
+  const sourceHead = execFileSync('git', ['-C', local, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  writeFile(path.join(source, '.devteam-sync-binding.json'), JSON.stringify({
+    track: 'feat-a',
+    feat: null,
+    profile: 'remote-vllm',
+    worktree_id: 'repo_a__feat',
+    repo: 'vllm-int',
+    local_path: local,
+    remote_path: source,
+    branch: 'feat-a',
+    source_head: sourceHead,
+  }));
+
+  const blocked = runCli(root, [
+    'env', 'refresh',
+    '--root', root,
+    '--profile', 'remote-vllm',
+    '--set', 'feat-a',
+    '--yes',
+  ]);
+  assert.strictEqual(blocked.status, 'blocked');
+  assert.strictEqual(blocked.reason, 'remote_source_drift');
+  assert.ok(blocked.remote_guard.blocking[0].problems.includes('venv_binding_missing'));
+
   const refresh = runCli(root, [
     'env', 'refresh',
     '--root', root,
     '--profile', 'remote-vllm',
+    '--set', 'feat-a',
     '--yes',
     '--run', session.run_id,
+    '--allow-unbound-venv',
   ]);
 
   assert.strictEqual(refresh.status, 'passed');
+  assert.strictEqual(refresh.remote_guard.status, 'blocked');
+  assert.strictEqual(refresh.remote_guard.totals.blocked, 1);
+  assert.match(refresh.command, /devteam-venv-binding\.json/);
+  const binding = JSON.parse(fs.readFileSync(path.join(venv, '.devteam-venv-binding.json'), 'utf8'));
+  assert.strictEqual(binding.track, 'feat-a');
+  assert.strictEqual(binding.profile, 'remote-vllm');
+  assert.strictEqual(binding.worktree_id, 'repo_a__feat');
+  assert.strictEqual(binding.source_head, sourceHead);
+
+  const status = runCli(root, ['env', 'remote-status', '--root', root, '--set', 'feat-a']);
+  assert.strictEqual(status.status, 'match');
+  assert.strictEqual(status.sources[0].remote.venv.binding_matches, true);
+
   assert.strictEqual(refresh.record.event.kind, 'env-refresh');
   assert.strictEqual(refresh.record.event.status, 'passed');
   assert.match(refresh.record.event.summary, /vllm_version 0\.0\.0\+fake\.precompiled/);
@@ -4225,6 +5089,235 @@ function testEnvDoctorCanAutoRecordToSessionRun() {
   const readme = fs.readFileSync(session.readme_path, 'utf8');
   assert.match(readme, /- Env doctor: passed/);
   assert.match(readme, /env doctor pass for local \(local\)/);
+}
+
+function testEnvBootstrapPlansRemoteProfileWithoutExecuting() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-env-bootstrap-'));
+  writeFile(path.join(root, '.devteam', 'recipes', 'bootstrap.md'), '# bootstrap\n');
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees:',
+    '  repo_a__feat:',
+    '    repo: repo-a',
+    '    path: repos/repo-a',
+    '    sync:',
+    '      profile: remote-vllm',
+    'tracks:',
+    '  feat-a:',
+    '    worktrees: ["repo_a__feat"]',
+    '    env: remote-vllm',
+    'environments:',
+    '  remote-a:',
+    '    kind: ssh_host',
+    '    ssh: "ssh root@10.0.0.1"',
+    '    proxy:',
+    '      http_proxy: "http://proxy:8080"',
+    '      no_proxy: "localhost,127.0.0.1"',
+    'env_profiles:',
+    '  remote-vllm:',
+    '    type: remote_dev',
+    '    environment: remote-a',
+    '    work_dir: "/remote/dev"',
+    '    source_dir: "/remote/dev/repos/repo-a"',
+    '    venv: "/remote/venv"',
+    '    python: "/remote/venv/bin/python"',
+    '    bootstrap: ".devteam/recipes/bootstrap.md"',
+    'defaults:',
+    '  track: feat-a',
+    '  env: remote-vllm',
+    '',
+  ].join('\n'));
+
+  const plan = runCli(root, ['env', 'bootstrap', '--root', root, '--set', 'feat-a']);
+  assert.strictEqual(plan.action, 'env_bootstrap_plan');
+  assert.strictEqual(plan.dry_run, true);
+  assert.strictEqual(plan.status, 'planned');
+  assert.strictEqual(plan.recipe.exists, true);
+  assert.strictEqual(plan.worktrees[0].remote_path, '/remote/dev/repos/repo-a');
+  assert.match(plan.runtime.bind_command, /env bind .*--set 'feat-a'.*--profile 'remote-vllm'/);
+  assert.strictEqual(plan.commands.length, 1);
+  assert.strictEqual(plan.commands[0].kind, 'remote_preflight');
+  assert.match(plan.commands[0].command, /^ssh root@10\.0\.0\.1 /);
+  assert.match(plan.commands[0].command, /HTTP_PROXY/);
+  assert.match(plan.commands[0].command, /mkdir -p/);
+  assert.match(plan.commands[0].command, /source_dir_missing/);
+  assert.match(plan.commands[0].command, /venv_missing/);
+
+  const text = runCliText(root, ['env', 'bootstrap', '--root', root, '--set', 'feat-a', '--text']);
+  assert.match(text, /Env Bootstrap Plan/);
+  assert.match(text, /Bootstrap Recipe:/);
+
+  const status = runCli(root, ['status', '--root', root, '--json']);
+  assert.strictEqual(status.environment.bootstrap.status, 'planned');
+  assert.strictEqual(status.environment.bootstrap.command_count, 1);
+}
+
+function testEnvRemoteStatusComparesSelectedWorktreeToRemoteSource() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-env-remote-status-'));
+  const local = path.join(root, 'worktrees', 'feat-a', 'repo-a');
+  const remote = path.join(root, 'remote', 'repo-a');
+  writeFile(path.join(local, 'README.md'), '# repo-a\n');
+  execFileSync('git', ['init'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['checkout', '-b', 'feat-a'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: local });
+  execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: local });
+  execFileSync('git', ['add', '.'], { cwd: local });
+  execFileSync('git', ['commit', '-m', 'init'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['clone', local, remote], { stdio: ['ignore', 'ignore', 'ignore'] });
+
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees:',
+    '  repo_a__feat:',
+    '    repo: repo-a',
+    '    path: worktrees/feat-a/repo-a',
+    '    branch: feat-a',
+    '    sync:',
+    '      profile: remote-vllm',
+    `      remote_path: "${remote}"`,
+    'tracks:',
+    '  feat-a:',
+    '    worktrees: ["repo_a__feat"]',
+    '    env: remote-vllm',
+    '    sync: remote-vllm',
+    'env_profiles:',
+    '  remote-vllm:',
+    '    type: remote_dev',
+    '    ssh: "sh -c"',
+    '    host: "local-shell"',
+    `    source_dir: "${remote}"`,
+    'defaults:',
+    '  track: feat-a',
+    '  env: remote-vllm',
+    '  sync: remote-vllm',
+    '',
+  ].join('\n'));
+
+  const match = runCli(root, ['env', 'remote-status', '--root', root, '--set', 'feat-a']);
+  assert.strictEqual(match.action, 'env_remote_status');
+  assert.strictEqual(match.status, 'match');
+  assert.strictEqual(match.sources[0].status, 'match');
+  assert.strictEqual(match.sources[0].local.branch, 'feat-a');
+  assert.strictEqual(match.sources[0].remote.branch, 'feat-a');
+  assert.strictEqual(match.sources[0].local.head, match.sources[0].remote.head);
+
+  writeFile(path.join(remote, 'remote-dirty.txt'), 'remote dirty\n');
+  writeFile(path.join(local, 'local-change.txt'), 'local change\n');
+  execFileSync('git', ['add', '.'], { cwd: local });
+  execFileSync('git', ['commit', '-m', 'local change'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+
+  const drift = runCli(root, ['env', 'remote-status', '--root', root, '--set', 'feat-a']);
+  assert.strictEqual(drift.status, 'drift');
+  assert.strictEqual(drift.totals.remote_dirty, 1);
+  assert.strictEqual(drift.totals.head_mismatch, 1);
+  assert.ok(drift.sources[0].problems.includes('remote_dirty'));
+  assert.ok(drift.sources[0].problems.includes('head_mismatch'));
+  assert.strictEqual(drift.sources[0].remote.dirty_summary.total, 1);
+
+  writeFile(path.join(remote, '.devteam-sync-binding.json'), JSON.stringify({
+    track: 'feat-a',
+    feat: null,
+    profile: 'remote-vllm',
+    worktree_id: 'repo_a__feat',
+    repo: 'repo-a',
+    local_path: local,
+    remote_path: remote,
+    branch: 'feat-a',
+    source_head: execFileSync('git', ['-C', local, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+    source_dirty: true,
+    source_dirty_signature: 'not-current-dirty-signature',
+  }));
+  const boundDirty = runCli(root, ['env', 'remote-status', '--root', root, '--set', 'feat-a']);
+  assert.strictEqual(boundDirty.status, 'drift');
+  assert.ok(boundDirty.sources[0].problems.includes('binding_dirty_mismatch'));
+
+  writeFile(path.join(remote, '.devteam-sync-binding.json'), JSON.stringify({
+    track: 'feat-a',
+    feat: null,
+    profile: 'remote-vllm',
+    worktree_id: 'repo_a__feat',
+    repo: 'repo-a',
+    local_path: local,
+    remote_path: remote,
+    branch: 'feat-a',
+    source_head: execFileSync('git', ['-C', local, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+  }));
+  const legacyBoundDirty = runCli(root, ['env', 'remote-status', '--root', root, '--set', 'feat-a']);
+  assert.strictEqual(legacyBoundDirty.status, 'drift');
+  assert.ok(legacyBoundDirty.sources[0].problems.includes('remote_git_head_mismatch'));
+
+  writeFile(path.join(local, 'local-dirty.txt'), 'dirty local content\n');
+  execFileSync('git', ['-C', remote, 'fetch', '-q', local, 'HEAD']);
+  execFileSync('git', ['-C', remote, 'checkout', '-B', 'feat-a', 'FETCH_HEAD'], { stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['-C', remote, 'reset', '--hard', 'FETCH_HEAD'], { stdio: ['ignore', 'ignore', 'ignore'] });
+  writeFile(path.join(remote, '.devteam-sync-binding.json'), JSON.stringify({
+    track: 'feat-a',
+    feat: null,
+    profile: 'remote-vllm',
+    worktree_id: 'repo_a__feat',
+    repo: 'repo-a',
+    local_path: local,
+    remote_path: remote,
+    branch: 'feat-a',
+    source_head: execFileSync('git', ['-C', local, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+    source_dirty: true,
+    source_dirty_signature: runCli(root, ['env', 'remote-status', '--root', root, '--set', 'feat-a']).sources[0].local.dirty_signature,
+  }));
+  const boundDirtyWithSignature = runCli(root, ['env', 'remote-status', '--root', root, '--set', 'feat-a']);
+  assert.strictEqual(boundDirtyWithSignature.status, 'match');
+  assert.strictEqual(boundDirtyWithSignature.sources[0].remote.binding_dirty_matches, true);
+  assert.strictEqual(boundDirtyWithSignature.totals.remote_dirty, 0);
+  assert.strictEqual(boundDirtyWithSignature.sources[0].remote.binding_matches, true);
+  assert.ok(!boundDirtyWithSignature.sources[0].problems.includes('remote_dirty'));
+  assert.ok(!boundDirtyWithSignature.sources[0].problems.includes('head_mismatch'));
+
+  const hiddenFiles = runCli(root, ['env', 'remote-status', '--root', root, '--set', 'feat-a', '--dirty-limit', '0']);
+  assert.strictEqual(hiddenFiles.sources[0].remote.dirty_summary.total, 1);
+  assert.strictEqual(hiddenFiles.sources[0].remote.dirty_files.length, 0);
+  assert.strictEqual(hiddenFiles.sources[0].remote.dirty_truncated, true);
+
+  const text = runCliText(root, ['env', 'remote-status', '--root', root, '--set', 'feat-a', '--text']);
+  assert.match(text, /Env Remote Status/);
+  assert.match(text, /repo_a__feat\s+match/);
+  assert.doesNotMatch(text, /remote_dirty/);
+}
+
+function testEnvBootstrapPlansK8sProfileWithoutExecuting() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-env-bootstrap-k8s-'));
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees: {}',
+    'tracks: {}',
+    'environments:',
+    '  dev-cluster:',
+    '    kind: k8s_cluster',
+    '    kubeconfig: "/tmp/kubeconfig"',
+    '    proxy:',
+    '      http_proxy: "http://cluster-proxy:8080"',
+    'env_profiles:',
+    '  k8s-dev:',
+    '    type: k8s',
+    '    environment: dev-cluster',
+    '    namespace: dev',
+    '    bootstrap_commands:',
+    '      - "kubectl get pods -n dev"',
+    'defaults:',
+    '  env: k8s-dev',
+    '',
+  ].join('\n'));
+
+  const plan = runCli(root, ['env', 'bootstrap', '--root', root, '--profile', 'k8s-dev']);
+  assert.strictEqual(plan.status, 'planned');
+  assert.strictEqual(plan.type, 'k8s');
+  assert.strictEqual(plan.commands.length, 2);
+  assert.strictEqual(plan.commands[0].kind, 'k8s_preflight');
+  assert.match(plan.commands[0].command, /KUBECONFIG='\/tmp\/kubeconfig'/);
+  assert.match(plan.commands[0].command, /kubectl get namespace "dev"/);
+  assert.strictEqual(plan.commands[1].kind, 'configured');
+  assert.match(plan.commands[1].command, /kubectl get pods -n dev/);
 }
 
 function testWorkspaceScaffoldCreatesRegistryLaneLayout() {
@@ -4333,13 +5426,44 @@ function testWorkspaceOnboardingContextTrackContextAndHandoff() {
   assert.strictEqual(context.name, 'onboarding-test');
   assert.strictEqual(context.default_track, 'feature-a');
   assert.strictEqual(context.selected_track, null);
+  assert.strictEqual(context.runtime, null);
   assert.strictEqual(context.tracks.active[0].name, 'feature-a');
   assert.strictEqual(context.tracks.archived[0].name, 'old-track');
   assert.match(context.recommended_commands.track_picker, /track/);
 
   const contextText = runCliText(root, ['workspace', 'context', '--root', root, '--for', 'codex', '--text']);
   assert.match(contextText, /Devteam Workspace Context/);
-  assert.match(contextText, /Choose a track and optional feature before editing code/);
+  assert.match(contextText, /Bind or choose a track and optional feature before editing code/);
+
+  runCli(root, ['track', 'bind', 'feature-a', '--root', root, '--write']);
+  const boundContext = runCli(root, ['workspace', 'context', '--root', root, '--for', 'codex']);
+  assert.strictEqual(boundContext.selected_track, 'feature-a');
+  assert.strictEqual(boundContext.selected_source, 'binding:session');
+  assert.strictEqual(boundContext.runtime.profile, 'remote-test-feature');
+  assert.strictEqual(boundContext.runtime.binding.exists, false);
+  const boundContextText = runCliText(root, ['workspace', 'context', '--root', root, '--for', 'codex', '--text']);
+  assert.match(boundContextText, /selected_track: feature-a \(binding:session\)/);
+  assert.match(boundContextText, /selection_binding: \. '.*selection-session\.sh'/);
+  assert.match(boundContextText, /Runtime binding:/);
+  assert.match(boundContextText, /proxy=no/);
+
+  const activated = runCli(root, ['workspace', 'activate', '--root', root, '--set', 'feature-a']);
+  assert.strictEqual(activated.action, 'workspace_activate');
+  assert.strictEqual(activated.track, 'feature-a');
+  assert.ok(fs.existsSync(activated.selection_binding.shell_path));
+  assert.ok(fs.existsSync(activated.runtime_binding.shell_path));
+  assert.strictEqual(activated.sources.length, 2);
+  assert.match(activated.sources[0], /selection-session\.sh/);
+  assert.match(activated.sources[1], /runtime-feature-a__profile-remote-test-feature\.sh/);
+  const activatedStatus = runCli(root, ['status', '--root', root, '--json']);
+  assert.strictEqual(activatedStatus.workspace_set, 'feature-a');
+  assert.strictEqual(activatedStatus.workspace_set_source, 'binding:session');
+  assert.strictEqual(activatedStatus.runtime.binding.exists, true);
+  assert.strictEqual(activatedStatus.runtime.binding.current, true);
+  const activatedText = runCliText(root, ['workspace', 'activate', '--root', root, '--set', 'feature-a', '--text']);
+  assert.match(activatedText, /Workspace Activate/);
+  assert.match(activatedText, /selection-session\.sh/);
+  assert.match(activatedText, /runtime-feature-a__profile-remote-test-feature\.sh/);
 
   const trackContext = runCli(root, ['track', 'context', '--root', root, '--set', 'feat-a']);
   assert.strictEqual(trackContext.action, 'track_context');
@@ -4608,13 +5732,14 @@ function testRemoteDevProfileWithoutVllmSkipsImportCheck() {
 }
 
 function testVllmRefreshCommandUsesEditablePrecompiledInstall() {
-  const command = buildVllmRefreshCommand({
+  const profile = {
     type: 'remote_dev',
     source_dir: '/ppio1/devteam/kimi-pd-pegaflow-v0201/vllm-int',
     venv: '/ppio1/venvs/vllm-kimi-pd-pegaflow-v0201',
     python: '/ppio1/venvs/vllm-kimi-pd-pegaflow-v0201/bin/python',
     site_packages: '/ppio1/venvs/vllm-kimi-pd-pegaflow-v0201/lib/python3.12/site-packages',
     install_mode: 'editable-precompiled',
+    python_version: '3.12.12',
     proxy: {
       all_proxy: 'socks5h://172.17.0.1:1080',
       http_proxy: 'http://172.17.0.1:1081',
@@ -4622,7 +5747,8 @@ function testVllmRefreshCommandUsesEditablePrecompiledInstall() {
       uv_link_mode: 'copy',
       uv_http_timeout_seconds: 120,
     },
-  });
+  };
+  const command = buildVllmRefreshCommand(profile);
 
   assert.match(command, /git status --short --branch/);
   assert.match(command, /git describe --tags --match 'v\*' --always/);
@@ -4632,6 +5758,12 @@ function testVllmRefreshCommandUsesEditablePrecompiledInstall() {
   assert.match(command, /vllm_version/);
   assert.match(command, /ALL_PROXY='socks5h:\/\/172\.17\.0\.1:1080'/);
   assert.match(command, /UV_LINK_MODE='copy'/);
+  assert.doesNotMatch(command, /uv' venv/);
+
+  const createCommand = buildVllmRefreshCommand(profile, { createVenv: true });
+  assert.match(createCommand, /test -x '\/ppio1\/venvs\/vllm-kimi-pd-pegaflow-v0201\/bin\/python'/);
+  assert.match(createCommand, /uv' venv --clear --python '3\.12\.12' --seed --managed-python/);
+  assert.match(createCommand, /VLLM_USE_PRECOMPILED=1/);
 }
 
 function testEnvProfileInheritsEnvironmentMachineFacts() {
@@ -4732,6 +5864,77 @@ function testRuntimeContextBindsEnvProxyAndWorktrees() {
   assert.equal(runtime.env.NO_PROXY, 'localhost,127.0.0.1');
   assert.equal(runtime.worktrees[0].remote_path, '/remote/dev/repos/repo-a');
   assert.equal(runtime.env.DEVTEAM_WORKTREE_REPO_A_FEAT_REMOTE_PATH, '/remote/dev/repos/repo-a');
+}
+
+function testRuntimeBindWritesStableWorkspaceState() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-runtime-bind-'));
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees:',
+    '  repo_a__feat:',
+    '    repo: repo-a',
+    '    path: repos/repo-a',
+    '    branch: feat',
+    'tracks:',
+    '  feat-a:',
+    '    worktrees: ["repo_a__feat"]',
+    '    env: remote-vllm',
+    '    sync: remote-vllm',
+    'environments:',
+    '  remote-a:',
+    '    kind: ssh_host',
+    '    ssh: "ssh root@10.0.0.1"',
+    '    proxy:',
+    '      all_proxy: "socks5h://machine:1080"',
+    '      no_proxy: "localhost,127.0.0.1"',
+    'env_profiles:',
+    '  remote-vllm:',
+    '    type: remote_dev',
+    '    environment: remote-a',
+    '    work_dir: "/remote/dev"',
+    '    proxy:',
+    '      http_proxy: "http://track:8080"',
+    'defaults:',
+    '  track: feat-a',
+    '  env: remote-vllm',
+    '  sync: remote-vllm',
+    '',
+  ].join('\n'));
+
+  const before = runCli(root, ['status', '--root', root, '--json']);
+  assert.strictEqual(before.runtime.binding.exists, false);
+  assert.ok(before.next_actions.some(action => action.includes('env bind')));
+
+  const binding = runCli(root, ['env', 'bind', '--root', root, '--set', 'feat-a']);
+  assert.strictEqual(binding.action, 'runtime_bind');
+  assert.strictEqual(binding.scope, 'feat-a__profile-remote-vllm__env-remote-a');
+  assert.ok(binding.shell_path.endsWith('/.devteam/state/runtime-feat-a__profile-remote-vllm__env-remote-a.sh'));
+  assert.ok(binding.json_path.endsWith('/.devteam/state/runtime-feat-a__profile-remote-vllm__env-remote-a.json'));
+  assert.ok(fs.existsSync(binding.shell_path));
+  assert.ok(fs.existsSync(binding.json_path));
+  assert.match(binding.source, /^\. '.*runtime-feat-a__profile-remote-vllm__env-remote-a\.sh'$/);
+
+  const shell = fs.readFileSync(binding.shell_path, 'utf8');
+  assert.match(shell, /export DEVTEAM_TRACK='feat-a'/);
+  assert.match(shell, /export HTTP_PROXY='http:\/\/track:8080'/);
+  assert.match(shell, /export ALL_PROXY='socks5h:\/\/machine:1080'/);
+  assert.match(shell, /export DEVTEAM_WORKTREE_REPO_A_FEAT_REMOTE_PATH='\/remote\/dev\/repos\/repo-a'/);
+
+  const persisted = JSON.parse(fs.readFileSync(binding.json_path, 'utf8'));
+  assert.strictEqual(persisted.bound_at, binding.bound_at);
+  assert.strictEqual(persisted.digest, binding.digest);
+  assert.strictEqual(persisted.context.env.HTTP_PROXY, 'http://track:8080');
+
+  const text = runCliText(root, ['env', 'bind', '--root', root, '--set', 'feat-a', '--text']);
+  assert.match(text, /Runtime Binding/);
+  assert.match(text, /\. '.*runtime-feat-a__profile-remote-vllm__env-remote-a\.sh'/);
+
+  const after = runCli(root, ['status', '--root', root, '--json']);
+  assert.strictEqual(after.runtime.binding.exists, true);
+  assert.strictEqual(after.runtime.binding.current, true);
+  assert.strictEqual(after.runtime.binding.shell_path, binding.shell_path);
+  assert.ok(after.next_actions.includes(binding.source));
 }
 
 function testSessionStartWritesRuntimeShell() {
@@ -4856,9 +6059,11 @@ function testEnvRefreshDefaultsToDryRunPlan() {
 function main() {
   testYamlDoubleQuotedEscapesForShellCommands();
   testWorkspaceStatusShowsMissingAndSource();
+  testRepoStatusTracksUpstreamBehindAndPlansUpdates();
   testWorkspaceStatusSurfacesPublishPlan();
   testWorkspaceConfigIncludesLaneFragments();
   testFeatureReusesTrackEnvAndValidationProfiles();
+  testTrackBindWritesFeatureSelectionBinding();
   testWorkspaceStatusIncludesDirtyFileSummary();
   testWorkspacePublishPlanSurfacesPushCommands();
   testWorkspacePublishRequiresGateAndRecordsPush();
@@ -4866,6 +6071,7 @@ function main() {
   testSessionStatusPublishNextActionForAlreadyPublishedBranch();
   testSessionStartSuggestsPublishPlanWhenNeeded();
   testSessionStatusSummarizesEvidenceAndPublishPlan();
+  testHarnessStatusAggregatesWorkspaceRepoEnvAndSession();
   testSessionStatusMarksEvidenceStaleWhenWorktreeHeadChanges();
   testSessionListSummarizesRunHistoryAndFiltersByTrack();
   testSessionLifecycleCanCloseStaleRunsOutOfActiveHistory();
@@ -4888,8 +6094,15 @@ function main() {
   testSyncApplyDefaultsToDryRunPlan();
   testSyncPlanCanIncludeWorkspaceAssets();
   testSyncPatchModesSeparateBranchPatchFromDirtyOnly();
+  testSyncApplyBlocksDirtyRemoteSourceByDefault();
+  testSyncApplyBindsRemoteGitHeadToLocalHead();
+  testSyncApplyInitializesMissingRemoteGitMirror();
+  testEnvRefreshBlocksUnboundRemoteSourceDrift();
+  testEnvRefreshBlocksUnboundVenvUnlessExplicitlyAllowed();
   testDoctorAggregatesWorkspaceChecks();
   testDoctorScopesWorkspaceChecksToFeature();
+  testDoctorFlagsSharedRemoteSourceAndVenvBindings();
+  testFeatureProfilesOverrideTrackEnvAndSync();
   testImageAndDeployPlansUseConfiguredProfiles();
   testImagePlanSupportsTagPatchBuildContract();
   testImagePlanUsesTrackForRemoteValidationGate();
@@ -4909,6 +6122,9 @@ function main() {
   testSyncApplyCanAutoRecordToSessionRun();
   testEnvRefreshCanAutoRecordToSessionRun();
   testEnvDoctorCanAutoRecordToSessionRun();
+  testEnvBootstrapPlansRemoteProfileWithoutExecuting();
+  testEnvRemoteStatusComparesSelectedWorktreeToRemoteSource();
+  testEnvBootstrapPlansK8sProfileWithoutExecuting();
   testWorkspaceScaffoldCreatesRegistryLaneLayout();
   testWorkspaceOnboardingContextTrackContextAndHandoff();
   testKnowledgeListSearchLintAndCaptureRun();
@@ -4918,6 +6134,7 @@ function main() {
   testVllmRefreshCommandUsesEditablePrecompiledInstall();
   testEnvProfileInheritsEnvironmentMachineFacts();
   testRuntimeContextBindsEnvProxyAndWorktrees();
+  testRuntimeBindWritesStableWorkspaceState();
   testSessionStartWritesRuntimeShell();
   testSessionStatusBackfillsRuntimeForOldRuns();
   testValidatePlanIncludesRuntimeForK8sDev();

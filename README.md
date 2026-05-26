@@ -3,10 +3,12 @@
 [![v2.2.2](https://img.shields.io/badge/version-2.2.2-orange)](https://github.com/wz1qqx/devteam)
 
 `devteam` is a lightweight workspace control layer for multi-repo development.
-It helps an agent or human session understand the current workspace, choose a
-track and optional feature, sync local worktree changes to a remote development
-host, record remote venv validation, plan image builds, and capture
-pre-production deployment evidence.
+It helps an agent or human session understand the current workspace, track
+repo/upstream drift, choose a track and optional feature, bind the right
+environment/runtime exports, and run small assistive operations such as syncing
+code to a remote development host or pulling results back. Evidence, image
+builds, deployment records, and run history remain available, but they are
+optional workflow helpers rather than the center of the harness.
 
 The current architecture uses a thin `.devteam/config.yaml` entrypoint, shared
 environment/capability registries, and lane-owned track files. Reusable
@@ -18,18 +20,21 @@ mixed into workspace recipes.
 The normal workflow is:
 
 1. Open a devteam-managed workspace.
-2. Ask for workspace context or the devteam console.
-3. Choose a track and optional feature for the current session.
-4. Start or continue a run for that track/feature scope.
-5. Inspect local worktrees and sync code changes to the remote dev host.
-6. Validate in the configured remote venv and record test evidence.
-7. Review image build plans and record completed image evidence.
-8. Review deployment plans and record pre-production verification evidence.
-9. Publish validated branches when the run gate is ready.
+2. Inspect harness state with `status` and repo/upstream state with `repo status`.
+3. Choose a track and optional feature for the current terminal/session.
+4. Run `env bind --text` for that track/feature when remote or K8s helpers
+   need workspace paths, proxies, namespace, or worktree bindings, then source
+   the printed `.devteam/state/runtime-*.sh` file in new shells/sessions.
+5. Edit code with the appropriate coding/testing/optimization skill.
+6. Use devteam only for repeatable harness work: worktree inventory, repo
+   update planning, environment checks/bootstrap, sync, artifact pullback, and
+   optional run/session records when useful.
 
 Tracks and features are session-scoped. `defaults.track` and optional
 `defaults.feat` in `.devteam/config.yaml` are only default hints; they must not
 be treated as global active state when multiple sessions may be open.
+Use `track bind <track> [--feat <feat>] --write --text` when a shell or agent
+session needs a stable local selection file without changing workspace defaults.
 
 ## Core Concepts
 
@@ -48,9 +53,45 @@ be treated as global active state when multiple sessions may be open.
 - **Feature**: an incremental branch/worktree selection nested under a track.
   A feature reuses the track's environment and capability choices while
   narrowing commands to its own worktrees with `--feat <feat>`.
-- **Run**: an auditable directory under `.devteam/runs/<run-id>/` containing
-  session metadata, evidence events, a generated README, and `runtime.sh` with
-  the track-scoped proxy, work directory, K8s, and worktree path exports.
+- **Selection Binding**: a session-local `.devteam/state/selection-*.sh` and
+  `.json` written by `track bind --write`. Source it in a shell to set
+  `DEVTEAM_TRACK` and optional `DEVTEAM_FEAT` without modifying
+  `.devteam/config.yaml` defaults.
+- **Runtime Context**: the effective shell exports for the selected
+  track/feature: workspace root, env/sync profile, SSH/K8s fields, proxy
+  settings, and local/remote worktree path bindings. Source this context before
+  remote or K8s operations so session shells do not lose proxy or path state.
+- **Runtime Binding**: a stable harness-managed snapshot of runtime context
+  under `.devteam/state/runtime-*.sh` and `.devteam/state/runtime-*.json`,
+  written by `env bind`. The filename includes the selected track, feature,
+  profile, and environment so frequent environment switching does not overwrite
+  another session's binding.
+- **Environment Bootstrap Plan**: a read-only `env bootstrap` plan for initial
+  machine or cluster setup. It resolves the selected profile/environment,
+  reports the bootstrap recipe, directories, runtime bind command, and manual
+  preflight/configured commands without executing remote or K8s mutations.
+- **Remote Source Status**: a read-only `env remote-status` check that compares
+  the selected local worktree branch/head/dirty state with the configured
+  remote source mirror. It also verifies the harness sync marker against the
+  remote Git checkout, so a stale remote `.git` HEAD cannot be hidden by a
+  copied working tree. Use it before sync or env refresh when a remote session
+  may be running code from a different branch or dirty checkout.
+- **Remote Source Sync Binding**: `sync apply --yes` binds the remote source
+  mirror's Git checkout to the selected local committed `HEAD` first, then
+  rsyncs the selected files so local dirty/staged/untracked edits remain
+  available for remote testing, then writes `.devteam-sync-binding.json`.
+  This Git binding is enabled by default and can be disabled per worktree with
+  `sync.git_bind: false`.
+- **Remote Venv Binding**: `env refresh --yes` writes
+  `.devteam-venv-binding.json` into the selected venv after a successful
+  editable install. First-time venv creation should use
+  `env refresh --create-venv --allow-unbound-venv --yes` after `sync apply`,
+  so the venv is bound to the same track/feature/source mirror instead of a
+  stale or shared checkout.
+- **Run**: an optional auditable directory under `.devteam/runs/<run-id>/`
+  containing session metadata, evidence events, a generated README, and
+  `runtime.sh`. Runs are useful for validation handoff, but normal development
+  does not need to record every action as evidence.
 - **Presence**: lightweight soft-lock hints under `.devteam/presence/` for
   concurrent sessions. Presence never blocks work by itself.
 - **Evidence**: recorded facts such as sync, env-doctor, env-refresh, test,
@@ -125,6 +166,25 @@ For a compact agent-facing workspace context:
 node lib/devteam.cjs workspace context --root "$PWD" --for codex --text
 ```
 
+`workspace context` reads the session selection binding in
+`.devteam/state/selection-session.json` when no explicit `--set` or
+`DEVTEAM_TRACK` is present. If a track is bound, the context also shows the
+effective runtime profile, runtime binding source or bind command, and
+bootstrap plan summary so new shells and agent sessions can pick up the same
+environment/proxy/worktree state.
+
+To switch a shell or agent session to one track/environment in a single
+harness-managed step:
+
+```bash
+node lib/devteam.cjs workspace activate --root "$PWD" --set "<track>" --text
+node lib/devteam.cjs workspace activate --root "$PWD" --set "<track>" --feat "<feat>" --text
+```
+
+`workspace activate` writes both the session-local selection binding and the
+matching runtime binding. It does not modify `.devteam/config.yaml`, run SSH,
+apply Kubernetes resources, sync files, build images, or deploy anything.
+
 For the track picker:
 
 ```bash
@@ -143,6 +203,21 @@ For a one-screen status view:
 ```bash
 node lib/devteam.cjs status --root "$PWD" --set "<track>"
 node lib/devteam.cjs status --root "$PWD" --set "<track>" --feat "<feat>"
+```
+
+For repo/upstream state:
+
+```bash
+node lib/devteam.cjs repo status --root "$PWD" --set "<track>" --text
+node lib/devteam.cjs repo fetch --root "$PWD" --set "<track>"
+node lib/devteam.cjs repo update-plan --root "$PWD" --set "<track>"
+```
+
+For the older run/evidence view:
+
+```bash
+node lib/devteam.cjs session status --root "$PWD" --set "<track>" --text
+node lib/devteam.cjs status --root "$PWD" --set "<track>" --session
 ```
 
 For a session handoff before a context switch:
@@ -180,12 +255,13 @@ memory.
 
 - `workspace scaffold|onboard|context`
 - `track list|status|context|bind|use`
+- `repo list|status|fetch|update-plan`
 - `presence list|touch|clear`
 - `session start|snapshot|record|status|handoff|list|lint|archive-plan|archive|supersede-plan|supersede-stale|close|supersede|reopen`
 - `status`
 - `doctor [agent-onboarding]`
 - `ws status|materialize|publish-plan|publish`
-- `env list|show|environments|doctor|runtime|refresh`
+- `env list|show|environments|doctor|runtime|bind|bootstrap|remote-status|refresh`
 - `capability list|show`
 - `validate list|plan`
 - `sync plan|apply|status`
@@ -204,12 +280,16 @@ docs live in `commands/devteam/*.md`.
 - `lib/workspace-scaffold.cjs`: `.devteam` workspace layout creation.
 - `lib/workspace-onboarding.cjs`: generated agent onboarding and dynamic context.
 - `lib/track-profile.cjs`: track listing, context, aliases, and session binding.
+- `lib/repo-manager.cjs`: repo/worktree upstream status, fetch, and update planning.
+- `lib/harness-status.cjs`: top-level workspace harness status.
 - `lib/session-manager.cjs`: run sessions, evidence, gates, lifecycle cleanup, and handoff.
 - `lib/presence.cjs`: concurrent session presence hints.
 - `lib/workspace-inventory.cjs`: local worktree status and publish planning.
-- `lib/env-profile.cjs`: remote/k8s environment profile doctor and refresh.
-- `lib/runtime-context.cjs`: effective env/profile/worktree runtime exports for
-  sessions, validation plans, and deploy plans.
+- `lib/env-profile.cjs`: remote/k8s environment profile bootstrap plans,
+  doctor, and refresh.
+- `lib/runtime-context.cjs`: effective env/profile/worktree runtime exports and
+  stable `.devteam/state/runtime-*.sh` bindings for sessions, validation plans,
+  and deploy plans.
 - `lib/capability-registry.cjs`: environment/capability/validation instance registry and read-only validation plans.
 - `lib/sync-plan.cjs`: local-to-remote sync planning and execution.
 - `lib/action-plan.cjs`: image/deploy instance planning, image/deploy planning, and evidence gates.

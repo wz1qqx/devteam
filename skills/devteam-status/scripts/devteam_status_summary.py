@@ -97,7 +97,7 @@ def run_devteam_status(
     workspace_set: Optional[str],
     feat: Optional[str] = None,
 ) -> dict:
-    cmd = ["node", str(cli), "status", "--root", str(root), "--json"]
+    cmd = ["node", str(cli), "status", "--root", str(root), "--session", "--json"]
     if run_id:
         cmd.extend(["--run", run_id])
     elif workspace_set:
@@ -169,7 +169,7 @@ def run_session_lint(
 
 
 def run_workspace_status(cli: Path, root: Path, workspace_set: Optional[str] = None, feat: Optional[str] = None) -> dict:
-    cmd = ["node", str(cli), "ws", "status", "--root", str(root)]
+    cmd = ["node", str(cli), "status", "--root", str(root), "--json"]
     if workspace_set:
         cmd.extend(scope_parts(workspace_set, feat))
     proc = subprocess.run(cmd, text=True, capture_output=True)
@@ -338,8 +338,12 @@ def evidence_brief(data: dict) -> str:
 
 
 def worktree_brief(data: dict) -> str:
-    workspace_status = data.get("workspace_status") or {}
-    worktrees = data.get("worktrees") or []
+    if data.get("action") == "harness_status":
+        workspace_status = ((data.get("worktrees") or {}).get("totals") or {})
+        worktrees = ((data.get("worktrees") or {}).get("entries") or [])
+    else:
+        workspace_status = data.get("workspace_status") or {}
+        worktrees = data.get("worktrees") or []
     base = (
         f"{workspace_status.get('present', 0)}/{workspace_status.get('worktrees', 0)} present, "
         f"{workspace_status.get('dirty', 0)} dirty"
@@ -378,6 +382,8 @@ def phase_brief(data: dict) -> str:
 
 
 def primary_actions(data: dict, run_lint: Optional[dict], cli: Path, root: Path) -> list[str]:
+    if data.get("action") == "harness_status":
+        return [str(item) for item in (data.get("next_actions") or [])[:2]] or ["No immediate action is required."]
     workspace_set = data.get("workspace_set") or None
     feat = data.get("feat") or None
     scope = scope_command(workspace_set, feat)
@@ -672,18 +678,56 @@ def emit_brief_workspace_summary(
     workspace = data.get("workspace") or "-"
     workspace_set = data.get("workspace_set") or "-"
     feat = data.get("feat") or None
-    totals = data.get("totals") or {}
+    harness = data.get("action") == "harness_status"
+    totals = ((data.get("worktrees") or {}).get("totals") or {}) if harness else (data.get("totals") or {})
+    repos = ((data.get("repos") or {}).get("totals") or {}) if harness else {}
+    environment = data.get("environment") or {}
     print("Devteam Workspace")
     print(f"- Workspace: {workspace}")
     print(f"- Track: {workspace_set}")
     if feat:
         print(f"- Feature: {feat}")
+    selection_binding = data.get("selection_binding") or {}
+    if harness and selection_binding.get("exists"):
+        print(
+            "- Selection binding: "
+            f"{selection_binding.get('source') or '-'} "
+            f"track={selection_binding.get('track') or '-'}"
+            + (f" feat={selection_binding.get('feat')}" if selection_binding.get("feat") else "")
+        )
+    if repos:
+        print(
+            "- Repos: "
+            f"{repos.get('repos', 0)} repos, "
+            f"{repos.get('behind_upstream', 0)} behind, "
+            f"{repos.get('upstream_unknown', 0)} upstream unknown"
+        )
+    if environment:
+        print(
+            "- Environment: "
+            f"{environment.get('profile') or '-'} "
+            f"type={environment.get('type') or '-'} "
+            f"proxy={'yes' if environment.get('proxy_configured') else 'no'}"
+        )
+    binding = ((data.get("runtime") or {}).get("binding") or {}) if harness else {}
+    if binding:
+        state = "current" if binding.get("exists") and binding.get("current") else ("stale" if binding.get("exists") else "missing")
+        print(f"- Runtime binding: {state} {binding.get('shell_path') or '-'}")
+    bootstrap = environment.get("bootstrap") or {}
+    if bootstrap:
+        recipe = bootstrap.get("recipe") or {}
+        print(
+            "- Env bootstrap: "
+            f"{bootstrap.get('status') or '-'} "
+            f"commands={bootstrap.get('command_count', 0)} "
+            f"recipe={recipe.get('path') or '-'}"
+        )
     print(
         "- Worktrees: "
         f"{totals.get('present', 0)}/{totals.get('worktrees', 0)} present, "
         f"{totals.get('dirty', 0)} dirty, {totals.get('missing', 0)} missing"
     )
-    worktrees = data.get("worktrees") or []
+    worktrees = ((data.get("worktrees") or {}).get("entries") or []) if harness else (data.get("worktrees") or [])
     if worktrees:
         wt = worktrees[0]
         dirty = "dirty" if wt.get("dirty") else "clean"
@@ -739,7 +783,8 @@ def emit_full_workspace_summary(
     workspace = data.get("workspace") or "-"
     workspace_set = data.get("workspace_set") or "-"
     feat = data.get("feat") or None
-    totals = data.get("totals") or {}
+    harness = data.get("action") == "harness_status"
+    totals = ((data.get("worktrees") or {}).get("totals") or {}) if harness else (data.get("totals") or {})
     print("Devteam Workspace")
     print(f"- Workspace: {workspace}")
     print(f"- Track: {workspace_set}")
@@ -750,7 +795,8 @@ def emit_full_workspace_summary(
         f"{totals.get('present', 0)}/{totals.get('worktrees', 0)} present, "
         f"{totals.get('dirty', 0)} dirty"
     )
-    for wt in data.get("worktrees") or []:
+    worktrees = ((data.get("worktrees") or {}).get("entries") or []) if harness else (data.get("worktrees") or [])
+    for wt in worktrees:
         dirty = "dirty" if wt.get("dirty") else "clean"
         print(
             f"- {wt.get('id', '-')}: {wt.get('branch', '-') or wt.get('desired_branch', '-')} "
