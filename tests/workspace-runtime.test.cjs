@@ -21,6 +21,39 @@ function writeFile(filePath, content) {
   fs.writeFileSync(filePath, content, 'utf8');
 }
 
+function writeFakeLocalRsync(binDir) {
+  writeFile(path.join(binDir, 'rsync'), [
+    '#!/bin/sh',
+    'set -eu',
+    'src=',
+    'dest=',
+    'for arg in "$@"; do',
+    '  src="$dest"',
+    '  dest="$arg"',
+    'done',
+    'case "$dest" in',
+    '  local-shell:*) dest=${dest#local-shell:} ;;',
+    '  *:*) dest=${dest#*:} ;;',
+    'esac',
+    'mkdir -p "$dest"',
+    'src=${src%/}',
+    'if [ -d "$src" ]; then',
+    '  (cd "$src" && find . -mindepth 1 ! -path "./.git" ! -path "./.git/*" -print) | while IFS= read -r item; do',
+    '    if [ -d "$src/$item" ]; then',
+    '      mkdir -p "$dest/$item"',
+    '    elif [ -f "$src/$item" ]; then',
+    '      mkdir -p "$dest/$(dirname "$item")"',
+    '      cp "$src/$item" "$dest/$item"',
+    '    fi',
+    '  done',
+    'else',
+    '  cp "$src" "$dest/"',
+    'fi',
+    '',
+  ].join('\n'));
+  fs.chmodSync(path.join(binDir, 'rsync'), 0o755);
+}
+
 function runCli(cwd, args) {
   const stdout = execFileSync('node', [CLI, ...args], { cwd, encoding: 'utf8' });
   return JSON.parse(stdout);
@@ -2336,7 +2369,9 @@ function testRemoteLoopStartDoctorSyncRecordAndStatus() {
   assert.strictEqual(sync.action, 'remote_loop_sync_plan');
   assert.strictEqual(sync.execute, false);
   assert.strictEqual(sync.patch_mode, 'dirty-only');
-  assert.strictEqual(sync.plan.totals.syncable, 0);
+  assert.strictEqual(sync.plan.totals.syncable, 1);
+  assert.strictEqual(sync.plan.entries[0].git_bind, true);
+  assert.strictEqual(sync.plan.entries[0].patch_file_count, 0);
 
   writeFile(path.join(repo, 'dirty.txt'), 'dirty\n');
   const dirtySync = runCli(root, [
@@ -3462,8 +3497,46 @@ function testSyncPatchModesSeparateBranchPatchFromDirtyOnly() {
     '--dirty-only',
   ]);
   assert.strictEqual(cleanDirtyOnly.entries[0].patch_mode, 'dirty-only');
-  assert.strictEqual(cleanDirtyOnly.entries[0].action, 'noop');
+  assert.strictEqual(cleanDirtyOnly.entries[0].action, 'sync');
+  assert.strictEqual(cleanDirtyOnly.entries[0].git_bind, true);
   assert.strictEqual(cleanDirtyOnly.entries[0].patch_file_count, 0);
+
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees:',
+    '  repo_a__feature:',
+    '    repo: repo-a',
+    '    path: repo-a-feature',
+    '    branch: feature',
+    '    base_ref: HEAD~1',
+    '    sync:',
+    '      profile: remote-test-feature',
+    '      remote_path: /tmp/remote/repo-a-feature',
+    '      strategy: rsync-relative-patch-files',
+    '      git_bind: false',
+    'tracks:',
+    '  feature-a:',
+    '    worktrees: ["repo_a__feature"]',
+    'env_profiles:',
+    '  remote-test-feature:',
+    '    type: remote_dev',
+    '    ssh: "sh -c"',
+    '    host: local-shell',
+    'defaults:',
+    '  track: feature-a',
+    '  env: remote-test-feature',
+    '  sync: remote-test-feature',
+  ].join('\n') + '\n');
+  const cleanDirtyOnlyNoGitBind = runCli(root, [
+    'sync', 'plan',
+    '--root', root,
+    '--set', 'feature-a',
+    '--profile', 'remote-test-feature',
+    '--dirty-only',
+  ]);
+  assert.strictEqual(cleanDirtyOnlyNoGitBind.entries[0].action, 'noop');
+  assert.strictEqual(cleanDirtyOnlyNoGitBind.entries[0].git_bind, false);
 
   writeFile(path.join(repo, 'dirty.txt'), 'dirty\n');
   const dirtyOnly = runCli(root, [
@@ -3483,8 +3556,7 @@ function testSyncApplyBlocksDirtyRemoteSourceByDefault() {
   const local = path.join(root, 'repo-a-feature');
   const remote = path.join(root, 'remote', 'repo-a-feature');
   const fakeBin = path.join(root, 'bin');
-  writeFile(path.join(fakeBin, 'rsync'), '#!/bin/sh\nexit 0\n');
-  fs.chmodSync(path.join(fakeBin, 'rsync'), 0o755);
+  writeFakeLocalRsync(fakeBin);
   writeFile(path.join(local, 'README.md'), '# repo\n');
   execFileSync('git', ['init'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
   execFileSync('git', ['checkout', '-b', 'feature'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
@@ -3547,6 +3619,135 @@ function testSyncApplyBlocksDirtyRemoteSourceByDefault() {
   ], { PATH: `${fakeBin}:${process.env.PATH}` });
   assert.strictEqual(allowed.status, 'applied');
   assert.strictEqual(allowed.totals.synced, 1);
+}
+
+function testSyncApplyBindsRemoteGitHeadToLocalHead() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-sync-git-bind-'));
+  const local = path.join(root, 'repo-a-feature');
+  const remote = path.join(root, 'remote', 'repo-a-feature');
+  const fakeBin = path.join(root, 'bin');
+  writeFakeLocalRsync(fakeBin);
+  writeFile(path.join(local, 'README.md'), '# repo\n');
+  execFileSync('git', ['init'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['checkout', '-b', 'feature'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: local });
+  execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: local });
+  execFileSync('git', ['add', '.'], { cwd: local });
+  execFileSync('git', ['commit', '-m', 'init'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['clone', local, remote], { stdio: ['ignore', 'ignore', 'ignore'] });
+  writeFile(path.join(local, 'feature.txt'), 'feature\n');
+  execFileSync('git', ['add', '.'], { cwd: local });
+  execFileSync('git', ['commit', '-m', 'feature'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  const localHead = execFileSync('git', ['-C', local, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const remoteHeadBefore = execFileSync('git', ['-C', remote, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  assert.notStrictEqual(remoteHeadBefore, localHead);
+  writeFile(path.join(local, 'README.md'), '# repo\n\nlocal dirty\n');
+
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees:',
+    '  repo_a__feature:',
+    '    repo: repo-a',
+    '    path: repo-a-feature',
+    '    branch: feature',
+    '    sync:',
+    '      profile: remote-test-feature',
+    `      remote_path: "${remote}"`,
+    'tracks:',
+    '  feature-a:',
+    '    worktrees: ["repo_a__feature"]',
+    'env_profiles:',
+    '  remote-test-feature:',
+    '    type: remote_dev',
+    '    ssh: "sh -c"',
+    '    host: "local-shell"',
+    `    source_dir: "${remote}"`,
+    'defaults:',
+    '  track: feature-a',
+    '  env: remote-test-feature',
+    '  sync: remote-test-feature',
+  ].join('\n') + '\n');
+
+  const plan = runCli(root, ['sync', 'plan', '--root', root, '--set', 'feature-a', '--profile', 'remote-test-feature']);
+  assert.strictEqual(plan.entries[0].git_bind, true);
+  assert.match(plan.entries[0].git_command, /git .*bundle create/);
+
+  const applied = runCliWithEnv(root, [
+    'sync', 'apply',
+    '--root', root,
+    '--set', 'feature-a',
+    '--profile', 'remote-test-feature',
+    '--yes',
+  ], { PATH: `${fakeBin}:${process.env.PATH}` });
+  assert.strictEqual(applied.status, 'applied');
+  assert.strictEqual(applied.results[0].git_bind, true);
+  assert.strictEqual(applied.results[0].git_result.status, 'passed');
+  assert.strictEqual(applied.results[0].sync_result.status, 'passed');
+  assert.strictEqual(execFileSync('git', ['-C', remote, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), localHead);
+  assert.strictEqual(fs.readFileSync(path.join(remote, 'README.md'), 'utf8'), '# repo\n\nlocal dirty\n');
+  const remoteStatus = execFileSync('git', ['-C', remote, 'status', '--porcelain'], { encoding: 'utf8' }).trim();
+  assert.match(remoteStatus, /M README\.md/);
+  assert.match(remoteStatus, /\?\? \.devteam-sync-binding\.json/);
+  const binding = JSON.parse(fs.readFileSync(path.join(remote, '.devteam-sync-binding.json'), 'utf8'));
+  assert.strictEqual(binding.source_head, localHead);
+  assert.strictEqual(binding.source_dirty, true);
+  assert.ok(binding.source_dirty_signature);
+}
+
+function testSyncApplyInitializesMissingRemoteGitMirror() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'devteam-sync-git-init-'));
+  const local = path.join(root, 'repo-a-feature');
+  const remote = path.join(root, 'remote', 'repo-a-feature');
+  const fakeBin = path.join(root, 'bin');
+  writeFakeLocalRsync(fakeBin);
+  writeFile(path.join(local, 'README.md'), '# repo\n');
+  execFileSync('git', ['init'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['checkout', '-b', 'feature'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: local });
+  execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: local });
+  execFileSync('git', ['add', '.'], { cwd: local });
+  execFileSync('git', ['commit', '-m', 'init'], { cwd: local, stdio: ['ignore', 'ignore', 'ignore'] });
+  const localHead = execFileSync('git', ['-C', local, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+
+  writeFile(path.join(root, '.devteam', 'config.yaml'), [
+    'version: 2',
+    `workspace: ${root}`,
+    'worktrees:',
+    '  repo_a__feature:',
+    '    repo: repo-a',
+    '    path: repo-a-feature',
+    '    branch: feature',
+    '    sync:',
+    '      profile: remote-test-feature',
+    `      remote_path: "${remote}"`,
+    'tracks:',
+    '  feature-a:',
+    '    worktrees: ["repo_a__feature"]',
+    'env_profiles:',
+    '  remote-test-feature:',
+    '    type: remote_dev',
+    '    ssh: "sh -c"',
+    '    host: "local-shell"',
+    `    source_dir: "${remote}"`,
+    'defaults:',
+    '  track: feature-a',
+    '  env: remote-test-feature',
+    '  sync: remote-test-feature',
+  ].join('\n') + '\n');
+
+  const applied = runCliWithEnv(root, [
+    'sync', 'apply',
+    '--root', root,
+    '--set', 'feature-a',
+    '--profile', 'remote-test-feature',
+    '--yes',
+  ], { PATH: `${fakeBin}:${process.env.PATH}` });
+  assert.strictEqual(applied.status, 'applied');
+  assert.strictEqual(applied.results[0].git_result.status, 'passed');
+  assert.strictEqual(execFileSync('git', ['-C', remote, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), localHead);
+  assert.strictEqual(fs.readFileSync(path.join(remote, 'README.md'), 'utf8'), '# repo\n');
+  assert.ok(fs.existsSync(path.join(remote, '.devteam-sync-binding.json')));
 }
 
 function testEnvRefreshBlocksUnboundRemoteSourceDrift() {
@@ -5044,9 +5245,13 @@ function testEnvRemoteStatusComparesSelectedWorktreeToRemoteSource() {
     source_head: execFileSync('git', ['-C', local, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
   }));
   const legacyBoundDirty = runCli(root, ['env', 'remote-status', '--root', root, '--set', 'feat-a']);
-  assert.strictEqual(legacyBoundDirty.status, 'match');
+  assert.strictEqual(legacyBoundDirty.status, 'drift');
+  assert.ok(legacyBoundDirty.sources[0].problems.includes('remote_git_head_mismatch'));
 
   writeFile(path.join(local, 'local-dirty.txt'), 'dirty local content\n');
+  execFileSync('git', ['-C', remote, 'fetch', '-q', local, 'HEAD']);
+  execFileSync('git', ['-C', remote, 'checkout', '-B', 'feat-a', 'FETCH_HEAD'], { stdio: ['ignore', 'ignore', 'ignore'] });
+  execFileSync('git', ['-C', remote, 'reset', '--hard', 'FETCH_HEAD'], { stdio: ['ignore', 'ignore', 'ignore'] });
   writeFile(path.join(remote, '.devteam-sync-binding.json'), JSON.stringify({
     track: 'feat-a',
     feat: null,
@@ -5069,7 +5274,7 @@ function testEnvRemoteStatusComparesSelectedWorktreeToRemoteSource() {
   assert.ok(!boundDirtyWithSignature.sources[0].problems.includes('head_mismatch'));
 
   const hiddenFiles = runCli(root, ['env', 'remote-status', '--root', root, '--set', 'feat-a', '--dirty-limit', '0']);
-  assert.strictEqual(hiddenFiles.sources[0].remote.dirty_summary.total, 2);
+  assert.strictEqual(hiddenFiles.sources[0].remote.dirty_summary.total, 1);
   assert.strictEqual(hiddenFiles.sources[0].remote.dirty_files.length, 0);
   assert.strictEqual(hiddenFiles.sources[0].remote.dirty_truncated, true);
 
@@ -5890,6 +6095,8 @@ function main() {
   testSyncPlanCanIncludeWorkspaceAssets();
   testSyncPatchModesSeparateBranchPatchFromDirtyOnly();
   testSyncApplyBlocksDirtyRemoteSourceByDefault();
+  testSyncApplyBindsRemoteGitHeadToLocalHead();
+  testSyncApplyInitializesMissingRemoteGitMirror();
   testEnvRefreshBlocksUnboundRemoteSourceDrift();
   testEnvRefreshBlocksUnboundVenvUnlessExplicitlyAllowed();
   testDoctorAggregatesWorkspaceChecks();

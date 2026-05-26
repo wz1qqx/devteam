@@ -87,7 +87,17 @@ Route `/devteam <action>` to the matching lightweight command:
   that environment.
 - Use `env remote-status --text` before sync or env refresh when remote state
   matters. It is read-only and compares the selected local worktree to the
-  remote source mirror branch/head/dirty state.
+  remote source mirror branch/head/dirty state, including the harness sync
+  marker and the remote checkout's real Git HEAD.
+- Use `sync apply --yes` to update remote source mirrors. By default it binds
+  the remote Git checkout to the selected local committed HEAD, then rsyncs
+  dirty/staged/untracked files, then writes `.devteam-sync-binding.json`.
+  Disable this only with per-worktree `sync.git_bind: false` when the remote
+  target intentionally is not a Git mirror.
+- For a fresh remote venv, run sync first, then use
+  `env refresh --create-venv --allow-unbound-venv --yes`. A successful refresh
+  writes `.devteam-venv-binding.json`, so later remote tests and refreshes are
+  tied to the selected track/feature source mirror.
 
 ## Mutation Discipline
 

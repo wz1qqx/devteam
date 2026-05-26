@@ -72,8 +72,22 @@ session needs a stable local selection file without changing workspace defaults.
   preflight/configured commands without executing remote or K8s mutations.
 - **Remote Source Status**: a read-only `env remote-status` check that compares
   the selected local worktree branch/head/dirty state with the configured
-  remote source mirror. Use it before sync or env refresh when a remote session
+  remote source mirror. It also verifies the harness sync marker against the
+  remote Git checkout, so a stale remote `.git` HEAD cannot be hidden by a
+  copied working tree. Use it before sync or env refresh when a remote session
   may be running code from a different branch or dirty checkout.
+- **Remote Source Sync Binding**: `sync apply --yes` binds the remote source
+  mirror's Git checkout to the selected local committed `HEAD` first, then
+  rsyncs the selected files so local dirty/staged/untracked edits remain
+  available for remote testing, then writes `.devteam-sync-binding.json`.
+  This Git binding is enabled by default and can be disabled per worktree with
+  `sync.git_bind: false`.
+- **Remote Venv Binding**: `env refresh --yes` writes
+  `.devteam-venv-binding.json` into the selected venv after a successful
+  editable install. First-time venv creation should use
+  `env refresh --create-venv --allow-unbound-venv --yes` after `sync apply`,
+  so the venv is bound to the same track/feature/source mirror instead of a
+  stale or shared checkout.
 - **Run**: an optional auditable directory under `.devteam/runs/<run-id>/`
   containing session metadata, evidence events, a generated README, and
   `runtime.sh`. Runs are useful for validation handoff, but normal development
